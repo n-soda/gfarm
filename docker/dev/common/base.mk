@@ -280,6 +280,7 @@ TOP='$(TOP)' \
 	GFDOCKER_AUTH_TYPE='$(GFDOCKER_AUTH_TYPE)' \
 	GFDOCKER_GFMD_JOURNAL_DIR='$(GFDOCKER_GFMD_JOURNAL_DIR)' \
 	GFDOCKER_PRJ_NAME='$(GFDOCKER_PRJ_NAME)' \
+	GFDOCKER_SASL_USE_KEYCLOAK='$(GFDOCKER_SASL_USE_KEYCLOAK)' \
 	'$(TOP)/docker/dev/common/gen.sh'
 	cp $(TOP)/docker/dev/config.mk $(TOP)/docker/dev/.shadow.config.mk
 endef
@@ -307,6 +308,10 @@ define reborn
 		$(build); \
 	fi
 	$(up)
+	if "$(GFDOCKER_SASL_USE_KEYCLOAK)"; then \
+		$(COMPOSE) exec $(CONTSHELL_FLAGS) httpd /setup.sh; \
+		$(COMPOSE) exec $(CONTSHELL_FLAGS) keycloak ./setup.sh; \
+	fi
 endef
 
 reborn:
