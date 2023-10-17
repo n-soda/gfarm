@@ -3179,7 +3179,7 @@ tls_session_establish(struct tls_session_ctx_struct *ctx, int fd,
 	socklen_t salen = sizeof(sa);
 	int eof, pst = -1;
 	bool negotiation_sent = false, negotiation_received = false;
-	gfarm_int32_t negotiation_error;
+	gfarm_int32_t negotiation_error, negotiation_error2;
 	typedef int (*tls_handshake_proc_t)(SSL *ssl);
 	tls_handshake_proc_t p = NULL;
 	SSL *ssl = NULL;
@@ -3334,7 +3334,29 @@ retry:
 	}
 
 bailout:
-	if (ret != GFARM_ERR_NO_ERROR) {
+	if (ret == GFARM_ERR_NO_ERROR) {
+		assert(negotiation_received &&
+		       negotiation_error == GFARM_ERR_NO_ERROR);
+
+		/* negotiation after SSL_accept()/SSL_connect() */
+		if (negotiation_received &&
+		    negotiation_error == GFARM_ERR_NO_ERROR) {
+			e = gfp_xdr_send(conn, "i", ret);
+			if (e == GFARM_ERR_NO_ERROR)
+				e = gfp_xdr_flush(conn);
+			if (e == GFARM_ERR_NO_ERROR)
+				e = gfp_xdr_recv(conn, 1, &eof, "i",
+				    &negotiation_error2);
+			if (e != GFARM_ERR_NO_ERROR) {
+				ret = e;
+			} else if (e == GFARM_ERR_NO_ERROR &&
+			    negotiation_error2 != GFARM_ERR_NO_ERROR) {
+				gflog_tls_info(GFARM_MSG_UNFIXED,
+				    "post SSL_accept()/SSL_connect() error: %s",
+				    gfarm_error_string(negotiation_error2));
+			}
+		}
+	} else {
 		/*
 		 * For example, if there is a problem in a certificate,
 		 * ret == GFARM_ERR_INVALID_ARGUMENT, but that does not match
@@ -3347,6 +3369,8 @@ bailout:
 			ret = GFARM_ERR_TLS_RUNTIME_ERROR;
 
 		/* to make negotiation graceful */
+
+		/* negotiation before SSL_accept()/SSL_connect() */
 		if (!negotiation_sent) {
 			e = gfp_xdr_send(conn, "i", ret);
 			if (e == GFARM_ERR_NO_ERROR)
@@ -3357,6 +3381,23 @@ bailout:
 			e = gfp_xdr_recv(conn, 1, &eof, "i",
 			    &negotiation_error);
 			negotiation_received = true;
+		}
+
+		/* negotiation after SSL_accept()/SSL_connect() */
+		if (negotiation_received &&
+		    negotiation_error == GFARM_ERR_NO_ERROR) {
+			e = gfp_xdr_send(conn, "i", ret);
+			if (e == GFARM_ERR_NO_ERROR)
+				e = gfp_xdr_flush(conn);
+			if (e == GFARM_ERR_NO_ERROR)
+				e = gfp_xdr_recv(conn, 1, &eof, "i",
+				    &negotiation_error2);
+			if (e == GFARM_ERR_NO_ERROR &&
+			    negotiation_error2 != GFARM_ERR_NO_ERROR) {
+				gflog_tls_info(GFARM_MSG_UNFIXED,
+				    "post SSL_accept()/SSL_connect() error: %s",
+				    gfarm_error_string(negotiation_error2));
+			}
 		}
 	}
 

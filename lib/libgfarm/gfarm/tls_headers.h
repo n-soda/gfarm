@@ -2,6 +2,7 @@
 
 #if defined(HAVE_TLS_1_3) && defined(IN_TLS_CORE)
 
+#include <assert.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdbool.h>
