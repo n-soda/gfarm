@@ -1780,10 +1780,9 @@ tls_verify_self_certificate(SSL_CTX *ssl_ctx)
 {
 	X509_STORE *cert_store;
 	X509_VERIFY_PARAM *tmpvpm = NULL;
-	X509 *self_cert;
 	STACK_OF(X509) *chain;
 	X509_STORE_CTX *store_ctx;
-	int st;
+	int st, ncerts, i;
 
 	tls_runtime_flush_error();
 
@@ -1820,8 +1819,6 @@ tls_verify_self_certificate(SSL_CTX *ssl_ctx)
 	}
 	X509_STORE_set_verify_cb(cert_store, tls_verify_callback_simple);
 
-	self_cert = SSL_CTX_get0_certificate(ssl_ctx);
-
 	st = SSL_CTX_get0_chain_certs(ssl_ctx, &chain);
 	if (st != 1) {
 		gflog_tls_error(GFARM_MSG_1005581,
@@ -1829,6 +1826,7 @@ tls_verify_self_certificate(SSL_CTX *ssl_ctx)
 		    "SSL_CTX_get0_chain_certs() failed");
 		return (GFARM_ERR_TLS_RUNTIME_ERROR);
 	}
+	ncerts = sk_X509_num(chain);
 
 	store_ctx = X509_STORE_CTX_new();
 	if (store_ctx == NULL) {
@@ -1838,20 +1836,29 @@ tls_verify_self_certificate(SSL_CTX *ssl_ctx)
 		return (GFARM_ERR_TLS_RUNTIME_ERROR);
 	}
 
-	st = X509_STORE_CTX_init(store_ctx, cert_store, self_cert, chain);
-	if (st != 1) {
-		gflog_tls_error(GFARM_MSG_1005583,
-		    "verify self certificate: X509_STORE_CTX_init() failed");
-	} else {
-		st = X509_verify_cert(store_ctx);
-		if (st != 1 && gflog_auth_get_verbose()) {
-			/*
-			 * this is usually unnecessary,
-			 * because tls_verify_callback_simple() shows it.
-			 */
-			gflog_tls_debug(GFARM_MSG_1005584,
-			    "self certificate verification error");
+	for (i = 0; i < ncerts; i++) {
+		X509 *cert = sk_X509_value(chain, i);
+
+		st = X509_STORE_CTX_init(store_ctx, cert_store, cert, NULL);
+		if (st != 1) {
+			gflog_tls_error(GFARM_MSG_UNFIXED,
+			    "verify self certificate/%d: "
+			    "X509_STORE_CTX_init() failed", i);
+		} else {
+			st = X509_verify_cert(store_ctx);
+			if (st != 1 && gflog_auth_get_verbose()) {
+				/*
+				 * this is usually unnecessary, because
+				 * tls_verify_callback_simple() shows it.
+				 */
+				int err = X509_STORE_CTX_get_error(store_ctx);
+				gflog_tls_debug(GFARM_MSG_UNFIXED,
+				    "self certificate/%d verification error: "
+				    "%s",
+				    i, X509_verify_cert_error_string(err));
+			}
 		}
+		X509_STORE_CTX_cleanup(store_ctx);
 	}
 	X509_STORE_CTX_free(store_ctx);
 
