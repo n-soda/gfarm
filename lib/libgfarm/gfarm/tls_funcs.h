@@ -1740,6 +1740,7 @@ done:
 	return (ret);
 }
 
+#if 0 /* not necessary, because the X509_V_FLAG_CRL_CHECK* flags are cleared */
 static gfarm_error_t
 tls_verify_callback_simple(int ok, X509_STORE_CTX *store_ctx)
 {
@@ -1774,9 +1775,10 @@ tls_verify_callback_simple(int ok, X509_STORE_CTX *store_ctx)
 	}
 	return (0);
 }
+#endif
 
 static inline gfarm_error_t
-tls_verify_self_certificate(SSL_CTX *ssl_ctx)
+tls_verify_self_certificate(SSL_CTX *ssl_ctx, bool use_proxy_cert)
 {
 	X509_STORE *cert_store;
 	X509_VERIFY_PARAM *tmpvpm = NULL;
@@ -1784,6 +1786,8 @@ tls_verify_self_certificate(SSL_CTX *ssl_ctx)
 	STACK_OF(X509) *chain;
 	X509_STORE_CTX *store_ctx;
 	int st;
+	bool recover_old_flags = false;
+	unsigned long new_flags, old_flags, set_flags, clr_flags;
 
 	tls_runtime_flush_error();
 
@@ -1796,29 +1800,56 @@ tls_verify_self_certificate(SSL_CTX *ssl_ctx)
 	}
 	tmpvpm = X509_STORE_get0_param(cert_store);
 	if (tmpvpm != NULL) {
-		/* keep the flags match with tls_session_create_ctx() */
-
-		unsigned long flags = 0;
-
-		flags |= (X509_V_FLAG_CRL_CHECK |
-				X509_V_FLAG_CRL_CHECK_ALL);
+		old_flags = X509_VERIFY_PARAM_get_flags(tmpvpm);
 
 		/*
-		 * XXX: layering violation:
-		 * should use GFP_XDR_TLS_CLIENT_USE_PROXY_CERTIFICATE
+		 * never set the following flags in initiator side:
+		 *	X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL
+		 * otherwise it is necessary to ignore
+		 * the X509_V_ERR_UNABLE_TO_GET_CRL error
+		 * in a callback function set by X509_STORE_set_verify_cb().
 		 */
-		if (gfarm_ctxp->tls_proxy_certificate)
-			flags |= X509_V_FLAG_ALLOW_PROXY_CERTS;
+		new_flags = 0;
 
-		st = X509_VERIFY_PARAM_set_flags(tmpvpm, flags);
-		if (st != 1) {
-			gflog_tls_error(GFARM_MSG_1005580,
-			    "verify self certificate: "
-			    "X509_VERIFY_PARAM_set_flags() failed");
-			return (GFARM_ERR_TLS_RUNTIME_ERROR);
+		/*
+		 * Here, the client does the similar inspections on behalf of
+		 * the server side, thus, X509_V_FLAG_ALLOW_PROXY_CERTS flag
+		 * is needed even in the client side.
+		 */
+		if (use_proxy_cert)
+			new_flags |= X509_V_FLAG_ALLOW_PROXY_CERTS;
+
+		if (new_flags != old_flags) {
+			recover_old_flags = true;
+			set_flags = (old_flags ^ new_flags) & new_flags;
+			clr_flags = (old_flags ^ new_flags) & old_flags;
+			if (set_flags != 0) {
+				st = X509_VERIFY_PARAM_set_flags(tmpvpm,
+				    set_flags);
+				if (st != 1) {
+					gflog_tls_error(GFARM_MSG_1005580,
+					    "verify self certificate: "
+					    "X509_VERIFY_PARAM_set_flags() "
+					    "failed");
+					return (GFARM_ERR_TLS_RUNTIME_ERROR);
+				}
+			}
+			if (clr_flags != 0) {
+				st = X509_VERIFY_PARAM_clear_flags(tmpvpm,
+				    clr_flags);
+				if (st != 1) {
+					gflog_tls_error(GFARM_MSG_UNFIXED,
+					    "verify self certificate: "
+					    "X509_VERIFY_PARAM_clear_flags() "
+					    "failed");
+					return (GFARM_ERR_TLS_RUNTIME_ERROR);
+				}
+			}
 		}
 	}
+#if 0 /* not necessary, because the X509_V_FLAG_CRL_CHECK* flags are cleared */
 	X509_STORE_set_verify_cb(cert_store, tls_verify_callback_simple);
+#endif
 
 	self_cert = SSL_CTX_get0_certificate(ssl_ctx);
 
@@ -1854,6 +1885,32 @@ tls_verify_self_certificate(SSL_CTX *ssl_ctx)
 		}
 	}
 	X509_STORE_CTX_free(store_ctx);
+
+	if (recover_old_flags) {
+		if (set_flags != 0) {
+			st = X509_VERIFY_PARAM_clear_flags(tmpvpm,
+			    set_flags);
+			if (st != 1) {
+				gflog_tls_error(GFARM_MSG_UNFIXED,
+				    "verify self certificate: "
+				    "X509_VERIFY_PARAM_clear_flags() "
+				    "failed");
+				return (GFARM_ERR_TLS_RUNTIME_ERROR);
+			}
+		}
+
+		if (clr_flags != 0) {
+			st = X509_VERIFY_PARAM_set_flags(tmpvpm,
+			    clr_flags);
+			if (st != 1) {
+				gflog_tls_error(GFARM_MSG_UNFIXED,
+				    "verify self certificate: "
+				    "X509_VERIFY_PARAM_set_flags() "
+				    "failed");
+				return (GFARM_ERR_TLS_RUNTIME_ERROR);
+			}
+		}
+	}
 
 	return (st == 1 ? GFARM_ERR_NO_ERROR : GFARM_ERR_TLS_RUNTIME_ERROR);
 }
@@ -2726,7 +2783,15 @@ runtime_init:
 		}
 
 		if (need_self_cert) {
-			ret = tls_verify_self_certificate(ssl_ctx);
+			/*
+			 * do self check to make TLS negotiation graceful.
+			 *
+			 * enable proxy cert even if TLS_ROLE_CLIENT, because
+			 * here, the client does the similar inspections
+			 * on behalf of the server side.
+			 */
+			ret = tls_verify_self_certificate(ssl_ctx,
+			    do_mutual_auth && use_proxy_cert);
 			if (ret != GFARM_ERR_NO_ERROR)
 				goto bailout;
 		}
