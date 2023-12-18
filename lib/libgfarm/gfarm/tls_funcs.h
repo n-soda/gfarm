@@ -1740,7 +1740,6 @@ done:
 	return (ret);
 }
 
-#if 0 /* not necessary, because the X509_V_FLAG_CRL_CHECK* flags are cleared */
 static gfarm_error_t
 tls_verify_callback_simple(int ok, X509_STORE_CTX *store_ctx)
 {
@@ -1775,7 +1774,6 @@ tls_verify_callback_simple(int ok, X509_STORE_CTX *store_ctx)
 	}
 	return (0);
 }
-#endif
 
 static inline gfarm_error_t
 tls_verify_self_certificate(SSL_CTX *ssl_ctx, bool use_proxy_cert)
@@ -1803,13 +1801,14 @@ tls_verify_self_certificate(SSL_CTX *ssl_ctx, bool use_proxy_cert)
 		old_flags = X509_VERIFY_PARAM_get_flags(tmpvpm);
 
 		/*
-		 * never set the following flags in initiator side:
+		 * leave the following flags in initiator side:
 		 *	X509_V_FLAG_CRL_CHECK | X509_V_FLAG_CRL_CHECK_ALL
-		 * otherwise it is necessary to ignore
-		 * the X509_V_ERR_UNABLE_TO_GET_CRL error
+		 * in this case,
+		 * the X509_V_ERR_UNABLE_TO_GET_CRL error has to be ignored
 		 * in a callback function set by X509_STORE_set_verify_cb().
+		 * but otherwise proxy cert expiration cannot be detected.
 		 */
-		new_flags = 0;
+		new_flags = old_flags;
 
 		/*
 		 * Here, the client does the similar inspections on behalf of
@@ -1847,9 +1846,7 @@ tls_verify_self_certificate(SSL_CTX *ssl_ctx, bool use_proxy_cert)
 			}
 		}
 	}
-#if 0 /* not necessary, because the X509_V_FLAG_CRL_CHECK* flags are cleared */
 	X509_STORE_set_verify_cb(cert_store, tls_verify_callback_simple);
-#endif
 
 	self_cert = SSL_CTX_get0_certificate(ssl_ctx);
 
