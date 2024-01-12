@@ -3179,15 +3179,26 @@ done:
 }
 
 static inline gfarm_error_t
-tls_session_establish(struct tls_session_ctx_struct *ctx, int fd,
-	struct gfp_xdr *conn, gfarm_error_t prior_error)
+tls_session_establish(struct tls_session_ctx_struct *ctx, int fd
+#ifndef TLS_TEST
+	,
+	struct gfp_xdr *conn,
+	gfarm_error_t prior_error
+#endif
+)
 {
-	gfarm_error_t e, ret = GFARM_ERR_UNKNOWN;
+	gfarm_error_t ret = GFARM_ERR_UNKNOWN;
 	struct sockaddr sa;
 	socklen_t salen = sizeof(sa);
-	int eof, pst = -1;
+	int pst = -1;
+#ifdef TLS_TEST
+	gfarm_error_t prior_error = GFARM_ERR_NO_ERROR;
+#else
+	gfarm_error_t e = GFARM_ERR_NO_ERROR;
+	int eof;
 	bool negotiation_sent = false, negotiation_received = false;
 	gfarm_int32_t negotiation_error;
+#endif
 	typedef int (*tls_handshake_proc_t)(SSL *ssl);
 	tls_handshake_proc_t p = NULL;
 	SSL *ssl = NULL;
@@ -3216,6 +3227,7 @@ tls_session_establish(struct tls_session_ctx_struct *ctx, int fd,
 			int ssl_err;
 			bool do_cont = false;
 
+#ifndef TLS_TEST
 			e = gfp_xdr_send(conn, "i",
 			    (gfarm_int32_t)GFARM_ERR_NO_ERROR);
 			if (e == GFARM_ERR_NO_ERROR)
@@ -3238,6 +3250,7 @@ tls_session_establish(struct tls_session_ctx_struct *ctx, int fd,
 				ret = negotiation_error;
 				goto bailout;
 			}
+#endif
 
 			ctx->is_handshake_tried_ = true;
 			p = (ctx->role_ == TLS_ROLE_SERVER) ?
@@ -3354,6 +3367,7 @@ bailout:
 		    !GFARM_AUTH_ERR_TRY_NEXT_METHOD(ret))
 			ret = GFARM_ERR_TLS_RUNTIME_ERROR;
 
+#ifndef TLS_TEST
 		/* to make negotiation graceful */
 		if (!negotiation_sent) {
 			e = gfp_xdr_send(conn, "i", ret);
@@ -3366,6 +3380,7 @@ bailout:
 			    &negotiation_error);
 			negotiation_received = true;
 		}
+#endif
 	}
 
 	return (ret);
