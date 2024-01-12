@@ -2725,11 +2725,13 @@ runtime_init:
 			}
 		}
 
+#ifndef TLS_TEST
 		if (need_self_cert) {
 			ret = tls_verify_self_certificate(ssl_ctx);
 			if (ret != GFARM_ERR_NO_ERROR)
 				goto bailout;
 		}
+#endif
 
 	} else {
 		gflog_tls_error(GFARM_MSG_1005621,
