@@ -35,6 +35,8 @@ struct gfarm_auth_sasl_client_static {
 	char sasl_secret_password_storage[SASL_PASSWORD_LEN_MAX];
 };
 
+static char *sasl_getsecret_password(void);
+
 gfarm_error_t
 gfarm_auth_request_sasl_common(struct gfp_xdr *conn,
 	const char *service_tag, const char *hostname,
@@ -42,7 +44,7 @@ gfarm_auth_request_sasl_common(struct gfp_xdr *conn,
 	struct passwd *pwd, const char *diag)
 {
 	gfarm_error_t e;
-	int save_errno, eof, r;
+	int save_errno, eof, r, xoauth2_failure;
 	char self_hsbuf[NI_MAXHOST + NI_MAXSERV];
 	char peer_hsbuf[NI_MAXHOST + NI_MAXSERV];
 	char *self_hs = self_hsbuf;
@@ -152,17 +154,37 @@ gfarm_auth_request_sasl_common(struct gfp_xdr *conn,
 	}
 
 	gfarm_privilege_lock("sasl_client_start");
+
 	r = sasl_client_start(sasl_conn,
 	    gfarm_ctxp->sasl_mechanisms != NULL ?
 	    gfarm_ctxp->sasl_mechanisms : mechanism_candidates,
 	    NULL, &data, &len, &chosen_mechanism);
+
+	/*
+	 * XXX XOAUTH2 specific hack
+	 * this only helps missing JWT case, but better than nothing
+	 */
+	xoauth2_failure = 0;
+	if (r == SASL_OK && strcmp(chosen_mechanism, "XOAUTH2") == 0) {
+		char *p = sasl_getsecret_password();
+		if (p == NULL || *p == '\0') { /* XXX more check is needed */
+			xoauth2_failure = 1;
+			r = SASL_FAIL;
+		}
+	}
+
 	gfarm_privilege_unlock("sasl_client_start");
 	free(mechanism_candidates);
-	if (r != SASL_OK && r != SASL_CONTINUE) {
+	if ((r != SASL_OK && r != SASL_CONTINUE)) {
 		if (gflog_auth_get_verbose()) {
-			gflog_error(GFARM_MSG_1005324,
-			    "%s: sasl_client_start(): %s",
-			    hostname, sasl_errstring(r, NULL, NULL));
+			if (xoauth2_failure) {
+				gflog_error(GFARM_MSG_UNFIXED,
+				   "SASL XOAUTH2: missing JWT");
+			} else {
+				gflog_error(GFARM_MSG_1005324,
+				    "%s: sasl_client_start(): %s",
+				    hostname, sasl_errstring(r, NULL, NULL));
+			}
 		}
 		/* chosen_mechanism == "" means error */
 		e = gfp_xdr_send(conn, "s", "");
@@ -170,8 +192,7 @@ gfarm_auth_request_sasl_common(struct gfp_xdr *conn,
 			e = gfp_xdr_flush(conn);
 		sasl_dispose(&sasl_conn);
 		gfp_xdr_tls_reset(conn); /* is this case graceful? */
-		/* XXX change this to GFARM_ERR_AUTHENTICATION if graceful */
-		return (GFARM_ERR_PROTOCOL_NOT_AVAILABLE);
+		return (GFARM_ERR_AUTHENTICATION);
 	}
 
 	if (gflog_auth_get_verbose()) {
@@ -947,6 +968,49 @@ gfarm_sasl_secret_password_set_by_jwt_file(void)
 
 /*
  * PREREQUISITE: gfarm_privilege_lock
+ */
+static gfarm_error_t
+sasl_getsecret_password_internal(sasl_secret_t **resultp)
+{
+	gfarm_error_t e;
+
+	if (gfarm_ctxp->sasl_password != NULL) {
+		e = gfarm_sasl_secret_password_set_by_string(
+		    gfarm_ctxp->sasl_password);
+	} else {
+		/* this needs gfarm_privilege_lock */
+		e = gfarm_sasl_secret_password_set_by_jwt_file();
+		if (e == GFARM_ERR_NO_SUCH_FILE_OR_DIRECTORY) {
+			if (gflog_auth_get_verbose()) {
+				gflog_error(GFARM_MSG_1005349,
+				    "sasl_password: not set");
+			}
+		}
+	}
+	if (e == GFARM_ERR_NO_ERROR) {
+		*resultp =
+		    (sasl_secret_t *)staticp->sasl_secret_password_storage;
+	}
+	return (e);
+}
+
+/*
+ * PREREQUISITE: gfarm_privilege_lock
+ */
+static char *
+sasl_getsecret_password(void)
+{
+	sasl_secret_t *resultp;
+	gfarm_error_t e = sasl_getsecret_password_internal(&resultp);
+
+	if (e != GFARM_ERR_NO_ERROR)
+		return (NULL);
+	/* resultp->char is (unsigned char *), thus the cast below is needed */
+	return ((char *)resultp->data);
+}
+
+/*
+ * PREREQUISITE: gfarm_privilege_lock
  *
  * this function is called from sasl_client_step(), and
  * gfarm_privilege_lock was held by the caller of sasl_client_step().
@@ -963,24 +1027,10 @@ sasl_getsecret(
 
 	switch (id) {
 	case SASL_CB_PASS:
-		if (gfarm_ctxp->sasl_password != NULL) {
-			e = gfarm_sasl_secret_password_set_by_string(
-			    gfarm_ctxp->sasl_password);
-		} else {
-			/* this needs gfarm_privilege_lock */
-			e = gfarm_sasl_secret_password_set_by_jwt_file();
-			if (e == GFARM_ERR_NO_SUCH_FILE_OR_DIRECTORY) {
-				if (gflog_auth_get_verbose()) {
-					gflog_error(GFARM_MSG_1005349,
-					    "sasl_password: not set");
-				}
-			}
-		}
+		e = sasl_getsecret_password_internal(resultp);
 		if (e != GFARM_ERR_NO_ERROR)
 			return (SASL_FAIL);
-		*resultp =
-		    (sasl_secret_t *)staticp->sasl_secret_password_storage;
-		break;
+		break; /* secret was set to *resultp */
 	default:
 		gflog_notice(GFARM_MSG_1005350,
 		    "sasl_getsecret(): unknown callback id 0x%x", id);
