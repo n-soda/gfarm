@@ -196,6 +196,7 @@ gfarm_authorize_sasl_common(struct gfp_xdr *conn,
 		gfp_xdr_tls_reset(conn);
 		return (e);
 	}
+gflog_info(GFARM_MSG_UNFIXED, "SASL:: %s: chosen_mechanism <%s>", hostname, chosen_mechanism);
 
 	e = gfp_xdr_recv(conn, 1, &eof, "i", &has_initial_response);
 	if (e != GFARM_ERR_NO_ERROR || eof) {
@@ -220,6 +221,7 @@ gfarm_authorize_sasl_common(struct gfp_xdr *conn,
 			gfp_xdr_tls_reset(conn); /* is this case graceful? */
 			return (e);
 		}
+gflog_info(GFARM_MSG_UNFIXED, "SASL:: %s: initial response <%.*s>", hostname, (int)rsz, response);
 	}
 
 	if (gfarm_ctxp->sasl_mechanisms != NULL &&
@@ -296,6 +298,7 @@ gfarm_authorize_sasl_common(struct gfp_xdr *conn,
 			gfp_xdr_tls_reset(conn); /* is this case graceful? */
 			return (e);
 		}
+gflog_info(GFARM_MSG_UNFIXED, "SASL:: %s: response <%.*s>", hostname, (int)rsz, response);
 		gfarm_privilege_lock("sasl_server_step");
 		r = sasl_server_step(sasl_conn, response, rsz, &data, &len);
 		gfarm_privilege_unlock("sasl_server_step");
