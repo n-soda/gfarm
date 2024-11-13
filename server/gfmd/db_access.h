@@ -159,6 +159,19 @@ gfarm_error_t db_mdhost_remove(const char *);
 gfarm_error_t db_mdhost_load(void *, void (*)(void *,
 	struct gfarm_metadb_server *));
 
+struct db_process_arg;
+gfarm_error_t db_process_alloc(gfarm_pid_t, char *, int, int, char *);
+gfarm_error_t db_process_free(gfarm_pid_t);
+gfarm_error_t db_process_load(void *,
+	void (*)(void *, struct db_process_arg *));
+
+struct db_file_desc_arg;
+gfarm_error_t db_spool_opened(gfarm_pid_t, int, int,
+	gfarm_ino_t, gfarm_uint64_t, const char *, int, char *, int);
+gfarm_error_t db_spool_closed(gfarm_pid_t, int);
+gfarm_error_t db_file_desc_load(void *,
+	void (*)(void *, struct db_file_desc_arg *));
+
 /* allocation for storage operations arguments */
 struct db_host_modify_arg;
 struct db_fsngroup_modify_arg;

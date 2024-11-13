@@ -21,6 +21,7 @@
 #include "dirset.h"
 #include "quota_dir.h"
 #include "mdhost.h"
+#include "process.h"
 #include "journal_file.h"	/* for enum journal_operation */
 #include "db_journal.h"
 
@@ -981,6 +982,97 @@ db_journal_apply_mdhost_remove(gfarm_uint64_t seqnum, char *name)
 }
 
 /**********************************************************/
+/* process */
+
+static gfarm_error_t
+db_journal_apply_process_alloc(gfarm_uint64_t seqnum,
+	struct db_process_arg *arg)
+{
+	gfarm_error_t e;
+	struct user *u;
+
+gflog_info(GFARM_MSG_UNFIXED, "apply process_alloc pid %lld user %s", (long long)arg->pid, arg->username);
+	if ((u = user_tenant_lookup(arg->username)) == NULL) {
+		e = GFARM_ERR_NO_SUCH_USER;
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "process_enter: seqnum=%lli pid=%lld user=%s : %s",
+		    (unsigned long long)seqnum, (long long)arg->pid,
+		    arg->username,
+		    gfarm_error_string(e));
+	} else if ((e = process_enter_in_slave(arg->pid, u,
+	    arg->key_type, arg->key_len, arg->shared_key))
+	    != GFARM_ERR_NO_ERROR) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "process_enter: seqnum=%lli pid=%lld user=%s : %s",
+		    (unsigned long long)seqnum, (long long)arg->pid,
+		    arg->username,
+		    gfarm_error_string(e));
+	}
+	return (e);
+}
+
+static gfarm_error_t
+db_journal_apply_process_free(gfarm_uint64_t seqnum,
+	struct db_process_pkey_arg *arg)
+{
+	gfarm_error_t e;
+
+	if ((e = process_free_in_slave(arg->pid)) != GFARM_ERR_NO_ERROR) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "process_free: seqnum=%lli pid=%lld : %s",
+		    (unsigned long long)seqnum, (long long)arg->pid,
+		    gfarm_error_string(e));
+	}
+	return (e);
+}
+
+/**********************************************************/
+/* file_desc: spool_opened / spool_closed */
+
+static gfarm_error_t
+db_journal_apply_spool_opened(gfarm_uint64_t seqnum,
+	struct db_file_desc_arg *arg)
+{
+	gfarm_error_t e;
+
+	if ((e = process_spool_opened_in_slave(
+	    arg->pid, arg->fd, arg->open_flags,
+	    arg->inum, arg->igen, arg->client_host, arg->client_port,
+	    arg->gfsd_host, arg->gfsd_port, arg->fd_option))
+	    != GFARM_ERR_NO_ERROR) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "spool_opened: seqnum=%llu pid=%lli fd=%d open_flags=0x%x "
+		    "inum=%lld igen=%lld "
+		    "client=%s client_port=%d gfsd=%s gfsd_port=%d "
+		    "fd_option=0x%llx : %s",
+		    (unsigned long long)seqnum,
+		    (long long)arg->pid, arg->fd, arg->open_flags,
+		    (long long)arg->inum, (long long)arg->igen,
+		    arg->client_host, arg->client_port,
+		    arg->gfsd_host, arg->gfsd_port,
+		    (long long)arg->fd_option,
+		    gfarm_error_string(e));
+	}
+	return (e);
+}
+
+static gfarm_error_t
+db_journal_apply_spool_closed(gfarm_uint64_t seqnum,
+	struct db_file_desc_pkey_arg *arg)
+{
+	gfarm_error_t e;
+
+	if ((e = process_spool_closed_in_slave(arg->pid, arg->fd))
+	    != GFARM_ERR_NO_ERROR) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "spool_closed: seqnum=%llu pid=%lli fd=%d : %s",
+		    (unsigned long long)seqnum, (long long)arg->pid, arg->fd,
+		    gfarm_error_string(e));
+	}
+	return (e);
+}
+
+/**********************************************************/
 
 const struct db_ops db_journal_apply_ops = {
 	NULL,
@@ -1080,6 +1172,14 @@ const struct db_ops db_journal_apply_ops = {
 	NULL,
 
 	db_journal_apply_fsngroup_modify,
+
+	db_journal_apply_process_alloc,
+	db_journal_apply_process_free,
+	NULL,
+
+	db_journal_apply_spool_opened,
+	db_journal_apply_spool_closed,
+	NULL,
 };
 
 void

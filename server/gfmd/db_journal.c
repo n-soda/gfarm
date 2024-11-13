@@ -43,6 +43,7 @@
 #include "journal_file.h"
 #include "db_access.h"
 #include "db_ops.h"
+#include "db_common.h"
 #include "db_journal.h"
 /* Do not depend other object files such as host.o, mdhost.o, ... */
 
@@ -434,9 +435,7 @@ db_journal_user_info_destroy(struct gfarm_user_info *ui)
 static void
 db_journal_user_auth_arg_destroy(struct db_user_auth_arg *arg)
 {
-	free(arg->username);
-	free(arg->auth_id_type);
-	free(arg->auth_user_id);
+	db_user_auth_arg_free(arg);
 	free(arg);
 }
 
@@ -572,6 +571,20 @@ db_journal_metadb_server_modify_arg_destroy(
 	struct db_mdhost_modify_arg *arg)
 {
 	gfarm_metadb_server_free(&arg->ms);
+	free(arg);
+}
+
+static void
+db_journal_process_arg_destroy(struct db_process_arg *arg)
+{
+	db_process_arg_free(arg);
+	free(arg);
+}
+
+static void
+db_journal_file_desc_arg_destroy(struct db_file_desc_arg *arg)
+{
+	db_file_desc_arg_free(arg);
 	free(arg);
 }
 
@@ -3672,7 +3685,335 @@ db_journal_write_mdhost_remove(gfarm_uint64_t seqnum, char *name)
 		seqnum, GFM_JOURNAL_MDHOST_REMOVE, name));
 }
 
- /**********************************************************/
+/**********************************************************/
+/* process */
+
+#define GFM_JOURNAL_PROCESS_ALLOC_XDR_SEND_FMT	"lsib"
+#define GFM_JOURNAL_PROCESS_ALLOC_XDR_RECV_FMT	"lsiB"
+#define GFM_JOURNAL_PROCESS_PKEY_XDR_FMT		"l"
+
+static gfarm_error_t
+db_journal_write_process_alloc_size_add(enum journal_operation ope,
+	size_t *sizep, void *arg)
+{
+	gfarm_error_t e;
+	struct db_process_arg *a = arg;
+
+	if ((e = gfp_xdr_send_size_add(sizep,
+	    GFM_JOURNAL_PROCESS_ALLOC_XDR_SEND_FMT,
+	    a->pid, NON_NULL_STR(a->username), a->key_type,
+	    a->key_len, a->shared_key)) != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_send_size_add", e, ope);
+		return (e);
+	}
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+db_journal_write_process_alloc_core(enum journal_operation ope, void *arg)
+{
+	gfarm_error_t e;
+	struct db_process_arg *a = arg;
+
+	if ((e = gfp_xdr_send(JOURNAL_W_XDR,
+	    GFM_JOURNAL_PROCESS_ALLOC_XDR_SEND_FMT,
+	    a->pid, NON_NULL_STR(a->username), a->key_type,
+	    a->key_len, a->shared_key)) != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_send", e, ope);
+		return (e);
+	}
+gflog_info(GFARM_MSG_UNFIXED, "write process_alloc_core: pid %lld, user: %s", (long long)a->pid, a->username);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+db_journal_write_process_alloc(gfarm_uint64_t seqnum,
+	struct db_process_arg *arg)
+{
+	return (db_journal_write(seqnum, GFM_JOURNAL_PROCESS_ALLOC, arg,
+		db_journal_write_process_alloc_size_add,
+		db_journal_write_process_alloc_core));
+}
+
+static gfarm_error_t
+db_journal_read_process_alloc(struct gfp_xdr *xdr,
+	struct db_process_arg **argp)
+{
+	gfarm_error_t e;
+	struct db_process_arg *arg;
+	int eof;
+	const enum journal_operation ope = GFM_JOURNAL_PROCESS_ALLOC;
+
+	GFARM_MALLOC(arg);
+	if (arg == NULL) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "GFARM_MALLOC", GFARM_ERR_NO_MEMORY, ope);
+		return (GFARM_ERR_NO_MEMORY);
+	}
+	memset(arg, 0, sizeof(*arg));
+	if ((e = gfp_xdr_recv(xdr, 1, &eof,
+	    GFM_JOURNAL_PROCESS_ALLOC_XDR_RECV_FMT,
+	    &arg->pid, &arg->username, &arg->key_type,
+	    &arg->key_len, &arg->shared_key)) != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_recv", e, ope);
+		db_journal_process_arg_destroy(arg);
+		*argp = NULL;
+	} else {
+gflog_info(GFARM_MSG_UNFIXED, "read process_alloc: pid %lld, user: %s", (long long)arg->pid, arg->username);
+		*argp = arg;
+	}
+	return (e);
+}
+
+static gfarm_error_t
+db_journal_write_process_free_size_add(enum journal_operation ope,
+	size_t *sizep, void *arg)
+{
+	gfarm_error_t e;
+	struct db_process_pkey_arg *a = arg;
+
+	if ((e = gfp_xdr_send_size_add(sizep,
+	    GFM_JOURNAL_PROCESS_PKEY_XDR_FMT,
+	    a->pid)) != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_send_size_add", e, ope);
+		return (e);
+	}
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+db_journal_write_process_free_core(enum journal_operation ope, void *arg)
+{
+	gfarm_error_t e;
+	struct db_process_pkey_arg *a = arg;
+
+	if ((e = gfp_xdr_send(JOURNAL_W_XDR,
+	    GFM_JOURNAL_PROCESS_PKEY_XDR_FMT,
+	    a->pid)) != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_send", e, ope);
+		return (e);
+	}
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+db_journal_write_process_free(gfarm_uint64_t seqnum,
+	struct db_process_pkey_arg *arg)
+{
+	return (db_journal_write(seqnum, GFM_JOURNAL_PROCESS_FREE, arg,
+		db_journal_write_process_free_size_add,
+		db_journal_write_process_free_core));
+}
+
+static gfarm_error_t
+db_journal_read_process_free(struct gfp_xdr *xdr,
+	struct db_process_pkey_arg **argp)
+{
+	gfarm_error_t e;
+	struct db_process_pkey_arg *arg;
+	int eof;
+	const enum journal_operation ope = GFM_JOURNAL_PROCESS_FREE;
+
+	GFARM_MALLOC(arg);
+	if (arg == NULL) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "GFARM_MALLOC", GFARM_ERR_NO_MEMORY, ope);
+		return (GFARM_ERR_NO_MEMORY);
+	}
+	memset(arg, 0, sizeof(*arg));
+	if ((e = gfp_xdr_recv(xdr, 1, &eof,
+	    GFM_JOURNAL_PROCESS_PKEY_XDR_FMT, &arg->pid))
+	    != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_recv", e, ope);
+		free(arg);
+		*argp = NULL;
+	} else {
+		*argp = arg;
+	}
+	return (e);
+}
+
+static gfarm_error_t
+db_journal_write_process_load(
+	void *closure,
+	void (*callback)(void *, struct db_process_arg *))
+{
+	return (store_ops->process_load(closure, callback));
+}
+
+/**********************************************************/
+/* file_desc: spool_opened / spool_closed */
+
+#define GFM_JOURNAL_SPOOL_OPENED_XDR_FMT	"liillsisil"
+#define GFM_JOURNAL_FILE_DESC_PKEY_XDR_FMT		"li"
+
+static gfarm_error_t
+db_journal_write_spool_opened_size_add(enum journal_operation ope,
+	size_t *sizep, void *arg)
+{
+	gfarm_error_t e;
+	struct db_file_desc_arg *a = arg;
+
+	if ((e = gfp_xdr_send_size_add(sizep,
+	    GFM_JOURNAL_SPOOL_OPENED_XDR_FMT,
+	    a->pid, a->fd, a->open_flags, a->inum, a->igen,
+	    NON_NULL_STR(a->client_host), a->client_port,
+	    NON_NULL_STR(a->gfsd_host), a->gfsd_port, a->fd_option))
+	    != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_send_size_add", e, ope);
+		return (e);
+	}
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+db_journal_write_spool_opened_core(enum journal_operation ope, void *arg)
+{
+	gfarm_error_t e;
+	struct db_file_desc_arg *a = arg;
+
+	if ((e = gfp_xdr_send(JOURNAL_W_XDR,
+	    GFM_JOURNAL_SPOOL_OPENED_XDR_FMT,
+	    a->pid, a->fd, a->open_flags, a->inum, a->igen,
+	    NON_NULL_STR(a->client_host), a->client_port,
+	    NON_NULL_STR(a->gfsd_host), a->gfsd_port, a->fd_option))
+	    != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_send", e, ope);
+		return (e);
+	}
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+db_journal_write_spool_opened(gfarm_uint64_t seqnum,
+	struct db_file_desc_arg *arg)
+{
+	return (db_journal_write(seqnum, GFM_JOURNAL_SPOOL_OPENED, arg,
+		db_journal_write_spool_opened_size_add,
+		db_journal_write_spool_opened_core));
+}
+
+static gfarm_error_t
+db_journal_read_spool_opened(struct gfp_xdr *xdr,
+	struct db_file_desc_arg **argp)
+{
+	gfarm_error_t e;
+	struct db_file_desc_arg *arg;
+	int eof;
+	const enum journal_operation ope = GFM_JOURNAL_SPOOL_OPENED;
+
+	GFARM_MALLOC(arg);
+	if (arg == NULL) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "GFARM_MALLOC", GFARM_ERR_NO_MEMORY, ope);
+		return (GFARM_ERR_NO_MEMORY);
+	}
+	memset(arg, 0, sizeof(*arg));
+	if ((e = gfp_xdr_recv(xdr, 1, &eof,
+	    GFM_JOURNAL_SPOOL_OPENED_XDR_FMT,
+	    &arg->pid, &arg->fd, &arg->open_flags, &arg->inum, &arg->igen,
+	    &arg->client_host, &arg->client_port,
+	    &arg->gfsd_host, &arg->gfsd_port,
+	    &arg->fd_option))
+	    != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_recv", e, ope);
+		db_journal_file_desc_arg_destroy(arg);
+		*argp = NULL;
+	} else {
+		*argp = arg;
+	}
+	return (e);
+}
+
+static gfarm_error_t
+db_journal_write_spool_closed_size_add(enum journal_operation ope,
+	size_t *sizep, void *arg)
+{
+	gfarm_error_t e;
+	struct db_file_desc_pkey_arg *a = arg;
+
+	if ((e = gfp_xdr_send_size_add(sizep,
+	    GFM_JOURNAL_FILE_DESC_PKEY_XDR_FMT,
+	    a->pid, a->fd)) != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_send_size_add", e, ope);
+		return (e);
+	}
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+db_journal_write_spool_closed_core(enum journal_operation ope, void *arg)
+{
+	gfarm_error_t e;
+	struct db_file_desc_pkey_arg *a = arg;
+
+	if ((e = gfp_xdr_send(JOURNAL_W_XDR,
+	    GFM_JOURNAL_FILE_DESC_PKEY_XDR_FMT,
+	    a->pid, a->fd)) != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_send", e, ope);
+		return (e);
+	}
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+db_journal_write_spool_closed(gfarm_uint64_t seqnum,
+	struct db_file_desc_pkey_arg *arg)
+{
+	return (db_journal_write(seqnum, GFM_JOURNAL_SPOOL_CLOSED, arg,
+		db_journal_write_spool_closed_size_add,
+		db_journal_write_spool_closed_core));
+}
+
+static gfarm_error_t
+db_journal_read_spool_closed(struct gfp_xdr *xdr,
+	struct db_file_desc_pkey_arg **argp)
+{
+	gfarm_error_t e;
+	struct db_file_desc_pkey_arg *arg;
+	int eof;
+	const enum journal_operation ope = GFM_JOURNAL_SPOOL_CLOSED;
+
+	GFARM_MALLOC(arg);
+	if (arg == NULL) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "GFARM_MALLOC", GFARM_ERR_NO_MEMORY, ope);
+		return (GFARM_ERR_NO_MEMORY);
+	}
+	memset(arg, 0, sizeof(*arg));
+	if ((e = gfp_xdr_recv(xdr, 1, &eof,
+	    GFM_JOURNAL_FILE_DESC_PKEY_XDR_FMT, &arg->pid, &arg->fd))
+	    != GFARM_ERR_NO_ERROR) {
+		GFLOG_DEBUG_WITH_OPE(GFARM_MSG_UNFIXED,
+		    "gfp_xdr_recv", e, ope);
+		free(arg);
+		*argp = NULL;
+	} else {
+		*argp = arg;
+	}
+	return (e);
+}
+
+static gfarm_error_t
+db_journal_write_file_desc_load(
+	void *closure,
+	void (*callback)(void *, struct db_file_desc_arg *))
+{
+	return (store_ops->file_desc_load(closure, callback));
+}
+
+/**********************************************************/
 /* nop */
 
 static gfarm_error_t
@@ -3706,6 +4047,7 @@ db_journal_read_nop(struct gfp_xdr *xdr,
 static void
 db_journal_ops_free(void *op_arg, enum journal_operation ope, void *obj)
 {
+gflog_info(GFARM_MSG_UNFIXED, "db_journal_ops_free: %s", journal_operation_name(ope));
 	switch (ope) {
 	case GFM_JOURNAL_HOST_ADD:
 		db_journal_host_info_destroy(obj);
@@ -3790,6 +4132,12 @@ db_journal_ops_free(void *op_arg, enum journal_operation ope, void *obj)
 	case GFM_JOURNAL_MDHOST_MODIFY:
 		db_journal_metadb_server_modify_arg_destroy(obj);
 		break;
+	case GFM_JOURNAL_PROCESS_ALLOC:
+		db_journal_process_arg_destroy(obj);
+		break;
+	case GFM_JOURNAL_SPOOL_OPENED:
+		db_journal_file_desc_arg_destroy(obj);
+		break;
 	case GFM_JOURNAL_HOST_REMOVE: /* char[] */
 	case GFM_JOURNAL_USER_REMOVE: /* char[] */
 	case GFM_JOURNAL_GROUP_REMOVE: /* char[] */
@@ -3804,6 +4152,8 @@ db_journal_ops_free(void *op_arg, enum journal_operation ope, void *obj)
 	case GFM_JOURNAL_SYMLINK_REMOVE: /* db_inode_inum_arg */
 	case GFM_JOURNAL_QUOTA_DIR_REMOVE: /* db_inode_inum_arg */
 	case GFM_JOURNAL_MDHOST_REMOVE: /* char[] */
+	case GFM_JOURNAL_PROCESS_FREE: /* db_process_pkey_arg */
+	case GFM_JOURNAL_SPOOL_CLOSED: /* db_file_desc_pkey_arg */
 		free(obj);
 		break;
 	case GFM_JOURNAL_FSNGROUP_MODIFY:
@@ -3967,6 +4317,22 @@ db_journal_read_ops(void *op_arg, struct gfp_xdr *xdr,
 		e = db_journal_read_fsngroup_modify(xdr,
 			(struct db_fsngroup_modify_arg **)objp);
 		break;
+	case GFM_JOURNAL_PROCESS_ALLOC:
+		e = db_journal_read_process_alloc(xdr,
+			(struct db_process_arg **)objp);
+		break;
+	case GFM_JOURNAL_PROCESS_FREE:
+		e = db_journal_read_process_free(xdr,
+			(struct db_process_pkey_arg **)objp);
+		break;
+	case GFM_JOURNAL_SPOOL_OPENED:
+		e = db_journal_read_spool_opened(xdr,
+			(struct db_file_desc_arg **)objp);
+		break;
+	case GFM_JOURNAL_SPOOL_CLOSED:
+		e = db_journal_read_spool_closed(xdr,
+			(struct db_file_desc_pkey_arg **)objp);
+		break;
 	case GFM_JOURNAL_NOP:
 		e = db_journal_read_nop(xdr,
 			(struct db_mdhost_modify_arg **)objp);
@@ -4100,6 +4466,14 @@ db_journal_ops_call(const struct db_ops *ops, gfarm_uint64_t seqnum,
 		e = ops->mdhost_remove(seqnum, obj); break;
 	case GFM_JOURNAL_FSNGROUP_MODIFY:
 		e = ops->fsngroup_modify(seqnum, obj); break;
+	case GFM_JOURNAL_PROCESS_ALLOC:
+		e = ops->process_alloc(seqnum, obj); break;
+	case GFM_JOURNAL_PROCESS_FREE:
+		e = ops->process_free(seqnum, obj); break;
+	case GFM_JOURNAL_SPOOL_OPENED:
+		e = ops->spool_opened(seqnum, obj); break;
+	case GFM_JOURNAL_SPOOL_CLOSED:
+		e = ops->spool_closed(seqnum, obj); break;
 	case GFM_JOURNAL_NOP:
 		e = GFARM_ERR_NO_ERROR; break;
 	default:
@@ -4185,7 +4559,7 @@ retry:
 	GFARM_STAILQ_FOREACH(ai, c, next) {
 #ifdef DEBUG_JOURNAL
 		gflog_info(GFARM_MSG_1003183,
-		    "apply seqnum=%llu ope=%s",
+		    "store seqnum=%llu ope=%s",
 		    (unsigned long long)ai->seqnum,
 		    journal_operation_name(ai->ope));
 #endif
@@ -4206,6 +4580,12 @@ retry:
 		journal_file_main_reader(self_jf));
 
 	GFARM_STAILQ_FOREACH(ai, c, next) {
+#ifdef DEBUG_JOURNAL
+		gflog_info(GFARM_MSG_UNFIXED,
+		    "apply seqnum=%llu ope=%s",
+		    (unsigned long long)ai->seqnum,
+		    journal_operation_name(ai->ope));
+#endif
 		if ((e = db_journal_ops_call(journal_apply_ops, ai->seqnum,
 		    ai->ope, ai->obj, "db_journal_apply_op[apply]"))
 		    != GFARM_ERR_NO_ERROR)
@@ -4961,5 +5341,13 @@ struct db_ops db_journal_ops = {
 	db_journal_write_mdhost_remove,
 	db_journal_mdhost_load,
 
-	db_journal_write_fsngroup_modify
+	db_journal_write_fsngroup_modify,
+
+	db_journal_write_process_alloc,
+	db_journal_write_process_free,
+	db_journal_write_process_load,
+
+	db_journal_write_spool_opened,
+	db_journal_write_spool_closed,
+	db_journal_write_file_desc_load,
 };

@@ -41,6 +41,7 @@ char *program_name = "gfs_pio_test";
 #define OP_WRITEALL	'O'		/* Output */
 #define OP_RECVFILE	'A'		/* Acquire */
 #define OP_SENDFILE	'Y'		/* Yield */
+#define OP_CLOSE	'L'		/* cLose */
 /* unused opcodes: BGHJKLNUVXZ */
 
 struct op {
@@ -100,7 +101,7 @@ main(int argc, char **argv)
 	}
 
 	while ((c = getopt(argc, argv,
-	    "aA:cC:DeE:FGh:Im:MnN:OP:QrR:S:tT:uU:vwW:Y:")) != -1) {
+	    "aA:cC:DeE:FGh:ILm:MnN:OP:QrR:S:tT:uU:vwW:Y:")) != -1) {
 		off = off2 = off3 = -1;
 		switch (c) {
 		case OP_RECVFILE:
@@ -131,6 +132,7 @@ main(int argc, char **argv)
 		case OP_STAT:
 		case OP_READALL:
 		case OP_WRITEALL:
+		case OP_CLOSE:
 			if (nops >= MAX_OPS) {
 				fprintf(stderr,
 				    "%s: number of operations reaches "
@@ -223,6 +225,11 @@ main(int argc, char **argv)
 		off = ops[i].off;
 		off2 = ops[i].off2;
 		off3 = ops[i].off3;
+		if (c != OP_PAUSE && gf == NULL) {
+			fprintf(stderr,
+			    "operation '%c' called with closed file", c);
+			return (c);
+		}
 		switch (c) {
 		case OP_READ:
 			if (off > sizeof buffer)
@@ -482,15 +489,28 @@ main(int argc, char **argv)
 				    (long long)off2, (long long)off3,
 				    (long long)roff);
 			break;
+		case OP_CLOSE:
+			e = gfs_pio_close(gf);
+			gf = NULL;
+			if (e != GFARM_ERR_NO_ERROR) {
+				fprintf(stderr, "gfs_pio_close(): %s\n",
+				    gfarm_error_string(e));
+				return (c);
+			}
+			if (verbose)
+				fprintf(stderr, "gfs_pio_close()\n ");
+			break;
 		default:
 			assert(0);
 		}
 	}
-	e = gfs_pio_close(gf);
-	if (e != GFARM_ERR_NO_ERROR) {
-		fprintf(stderr, "gfs_pio_close: %s\n",
-		    gfarm_error_string(e));
-		return (EXIT_GF_CLOSE);
+	if (gf != NULL) {
+		e = gfs_pio_close(gf);
+		if (e != GFARM_ERR_NO_ERROR) {
+			fprintf(stderr, "gfs_pio_close: %s\n",
+			    gfarm_error_string(e));
+			return (EXIT_GF_CLOSE);
+		}
 	}
 
 	e = gfarm_terminate();

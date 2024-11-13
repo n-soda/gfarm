@@ -389,3 +389,106 @@ const struct gfarm_base_generic_info_ops db_base_quota_dir_arg_ops = {
 	db_inode_dirset_arg_validate,
 };
 
+/**********************************************************************/
+
+void
+db_process_arg_free(struct db_process_arg *info)
+{
+	free(info->username);
+	free(info->shared_key);
+}
+
+static void
+db_process_arg_free_internal(void *vinfo)
+{
+	struct db_process_arg *info = vinfo;
+
+	db_process_arg_free(info);
+}
+
+static void
+db_process_arg_clear(void *vinfo)
+{
+	struct db_process_arg *info = vinfo;
+
+	memset(info, 0, sizeof(*info));
+}
+
+static int
+db_process_arg_validate(void *vinfo)
+{
+	struct db_process_arg *info = vinfo;
+
+	return (
+	    info->username != NULL &&
+	    info->shared_key != NULL
+	);
+}
+
+void
+db_process_callback_trampoline(void *closure, void *vinfo)
+{
+	struct db_process_trampoline_closure *c = closure;
+	struct db_process_arg *info = vinfo;
+
+	(*c->callback)(c->closure, info);
+}
+
+const struct gfarm_base_generic_info_ops db_base_process_arg_ops = {
+	sizeof(struct db_process_arg),
+	db_process_arg_free_internal,
+	db_process_arg_clear,
+	db_process_arg_validate,
+};
+
+/**********************************************************************/
+
+void
+db_file_desc_arg_free(struct db_file_desc_arg *info)
+{
+	free(info->client_host);
+	free(info->gfsd_host);
+}
+
+static void
+db_file_desc_arg_free_internal(void *vinfo)
+{
+	struct db_file_desc_arg *info = vinfo;
+
+	db_file_desc_arg_free(info);
+}
+
+static void
+db_file_desc_arg_clear(void *vinfo)
+{
+	struct db_file_desc_arg *info = vinfo;
+
+	memset(info, 0, sizeof(*info));
+}
+
+static int
+db_file_desc_arg_validate(void *vinfo)
+{
+	struct db_file_desc_arg *info = vinfo;
+
+	return (
+	    info->client_host != NULL &&
+	    info->gfsd_host != NULL
+	);
+}
+
+void
+db_file_desc_callback_trampoline(void *closure, void *vinfo)
+{
+	struct db_file_desc_trampoline_closure *c = closure;
+	struct db_file_desc_arg *info = vinfo;
+
+	(*c->callback)(c->closure, info);
+}
+
+const struct gfarm_base_generic_info_ops db_base_file_desc_arg_ops = {
+	sizeof(struct db_file_desc_arg),
+	db_file_desc_arg_free_internal,
+	db_file_desc_arg_clear,
+	db_file_desc_arg_validate,
+};

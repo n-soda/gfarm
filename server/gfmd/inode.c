@@ -5034,6 +5034,16 @@ inode_unlink(struct inode *base, const char *name, struct process *process,
 	return (GFARM_ERR_NO_ERROR);
 }
 
+static gfarm_error_t
+inode_open_common(struct file_opening *fo, struct inode_activity *ia)
+{
+	fo->opening_prev = &ia->openings;
+	fo->opening_next = ia->openings.opening_next;
+	ia->openings.opening_next = fo;
+	fo->opening_next->opening_prev = fo;
+	return (GFARM_ERR_NO_ERROR);
+}
+
 gfarm_error_t
 inode_open(struct file_opening *fo, struct dirset *tdirset)
 {
@@ -5043,7 +5053,7 @@ inode_open(struct file_opening *fo, struct dirset *tdirset)
 
 	if (ia == NULL) {
 		gflog_debug(GFARM_MSG_1001756,
-			"inode_activity_alloc() failed");
+			"inode_activity_alloc_or_update() failed");
 		return (GFARM_ERR_NO_MEMORY);
 	}
 	if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0) {
@@ -5070,11 +5080,23 @@ inode_open(struct file_opening *fo, struct dirset *tdirset)
 		fo->flag |= GFARM_FILE_TRUNC_PENDING;
 	}
 
-	fo->opening_prev = &ia->openings;
-	fo->opening_next = ia->openings.opening_next;
-	ia->openings.opening_next = fo;
-	fo->opening_next->opening_prev = fo;
-	return (GFARM_ERR_NO_ERROR);
+	return (inode_open_common(fo, ia));
+}
+
+gfarm_error_t
+inode_open_spool(struct file_opening *fo)
+{
+	struct inode *inode = fo->inode;
+	struct inode_activity *ia =
+	    inode_activity_alloc_or_update(
+	    &inode->u.c.activity, TDIRSET_IS_UNKNOWN);
+
+	if (ia == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+			"inode_activity_alloc_or_update() failed");
+		return (GFARM_ERR_NO_MEMORY);
+	}
+	return (inode_open_common(fo, ia));
 }
 
 struct dirset *

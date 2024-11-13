@@ -3429,6 +3429,42 @@ gfarm_ldap_quota_dir_load(void *closure,
 }
 
 /**********************************************************************/
+
+static gfarm_error_t
+gfarm_ldap_process_alloc(gfarm_uint64_t seqnum,
+	struct db_process_arg *arg)
+{
+	/* on-memory only */
+	free(arg);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+gfarm_ldap_process_free(gfarm_uint64_t seqnum, struct db_process_pkey_arg *arg)
+{
+	/* on-memory only */
+	free(arg);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+gfarm_ldap_spool_opened(gfarm_uint64_t seqnum, struct db_file_desc_arg *arg)
+{
+	/* on-memory only */
+	free(arg);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+gfarm_ldap_spool_closed(gfarm_uint64_t seqnum,
+	struct db_file_desc_pkey_arg *arg)
+{
+	/* on-memory only */
+	free(arg);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+/**********************************************************************/
 const struct db_ops db_ldap_ops = {
 	gfarm_ldap_initialize,
 	gfarm_ldap_terminate,
@@ -3529,4 +3565,12 @@ const struct db_ops db_ldap_ops = {
 	NULL,
 
 	gfarm_ldap_fsngroup_modify,
+
+	gfarm_ldap_process_alloc,
+	gfarm_ldap_process_free,
+	gfarm_ldap_process_load,
+
+	gfarm_ldap_spool_opened,
+	gfarm_ldap_spool_closed,
+	gfarm_ldap_file_desc_load,
 };

@@ -211,6 +211,8 @@ update_postgresql()
 	create_table QuotaDirSet
 	create_table QuotaDirectory
 	create_table GfarmUserAuth
+	create_table GfarmProcess
+	create_table GfarmFileDescriptor
 
 	update_host_table
 	update_quota_dirset_table

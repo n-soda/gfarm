@@ -166,6 +166,37 @@ struct db_mdhost_modify_arg {
 	int modflags;
 };
 
+struct db_process_arg {
+	gfarm_pid_t pid;
+	char *username;
+	int key_type;
+	size_t key_len;
+	char *shared_key;
+};
+
+struct db_process_pkey_arg {
+	gfarm_pid_t pid;
+};
+
+/* file_desc: fd + file_opening */
+struct db_file_desc_arg {
+	gfarm_pid_t pid;
+	int fd;
+	int open_flags;
+	gfarm_ino_t inum;
+	gfarm_uint64_t igen;
+	char *client_host;
+	char *gfsd_host;
+	int client_port;
+	int gfsd_port;
+	gfarm_uint64_t fd_option;
+};
+
+struct db_file_desc_pkey_arg {
+	gfarm_pid_t pid;
+	int fd;
+};
+
 struct db_ops {
 	gfarm_error_t (*initialize)(void);
 	gfarm_error_t (*terminate)(void);
@@ -322,4 +353,17 @@ struct db_ops {
 	gfarm_error_t (*fsngroup_modify)(gfarm_uint64_t,
 		struct db_fsngroup_modify_arg *);
 
+	gfarm_error_t (*process_alloc)(gfarm_uint64_t,
+		struct db_process_arg *);
+	gfarm_error_t (*process_free)(gfarm_uint64_t,
+		struct db_process_pkey_arg *);
+	gfarm_error_t (*process_load)(void *,
+		void (*)(void *, struct db_process_arg *));
+
+	gfarm_error_t (*spool_opened)(gfarm_uint64_t,
+		struct db_file_desc_arg *);
+	gfarm_error_t (*spool_closed)(gfarm_uint64_t,
+		struct db_file_desc_pkey_arg *);
+	gfarm_error_t (*file_desc_load)(void *,
+		void (*)(void *, struct db_file_desc_arg *));
 };

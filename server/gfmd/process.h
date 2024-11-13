@@ -9,6 +9,10 @@ struct process *process_lookup(gfarm_pid_t);
 
 enum inode_close_mode;
 
+gfarm_error_t process_enter_in_slave(
+	gfarm_pid_t, struct user *, int, size_t, char *);
+gfarm_error_t process_free_in_slave(gfarm_pid_t);
+
 gfarm_error_t process_new_generation_wait(struct peer *, int,
 	gfarm_error_t (*)(struct peer *, void *, int *), void *, const char *);
 gfarm_error_t process_new_generation_done(struct process *, struct peer *,
@@ -26,6 +30,9 @@ struct user *process_get_user(struct process *);
 struct tenant *process_get_tenant(struct process *);
 gfarm_ino_t process_get_root_inum(struct process *);
 gfarm_uint64_t process_get_root_igen(struct process *);
+
+void process_init(void);
+void file_desc_init(void);
 
 gfarm_error_t process_verify_fd(struct process *, struct peer *, int,
 	const char *);
@@ -70,10 +77,10 @@ struct file_opening {
 	struct inode *inode;
 	int flag;
 
-	struct peer *opener;
+	struct peer *opener; /* != NULL, if connected */
 	union {
 		struct opening_file {
-			struct peer *spool_opener;
+			struct peer *spool_opener; /* != NULL, if connected */
 			struct host *spool_host;
 			struct replica_spec replica_spec;
 
@@ -85,7 +92,7 @@ struct file_opening {
 			char *key;
 		} d;
 	} u;
-	gfarm_uint64_t	gen;
+	gfarm_uint64_t gen;
 
 	char *path_for_trace_log; /* XXX FIXME not maintained if "." or ".." */
 };
@@ -136,6 +143,10 @@ gfarm_error_t process_close_file_write(struct process *, struct peer *, int,
 	gfarm_off_t, struct gfarm_timespec *, struct gfarm_timespec *,
 	gfarm_int32_t *, gfarm_ino_t *, gfarm_int64_t *, gfarm_int64_t *,
 	char **, const char *);
+
+gfarm_error_t process_spool_opened_in_slave(gfarm_pid_t, int, int,
+	gfarm_ino_t, gfarm_uint64_t, char *, int, char *, int, gfarm_uint64_t);
+gfarm_error_t process_spool_closed_in_slave(gfarm_pid_t, int);
 
 gfarm_error_t process_cksum_set(struct process *, struct peer *, int,
 	const char *, size_t, const char *,

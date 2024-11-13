@@ -4926,6 +4926,21 @@ gfm_client_process_fd_info(struct gfm_connection *gfm_server,
 	return (e);
 }
 
+gfarm_error_t
+gfm_client_process_fd_remove_request(struct gfm_connection *gfm_server,
+	gfarm_pid_t pid, int fd, char *spool_host)
+{
+	return (gfm_client_rpc_request(gfm_server, GFM_PROTO_PROCESS_FD_REMOVE,
+	    "lis", (long long)pid, fd, spool_host));
+}
+
+gfarm_error_t
+gfm_client_process_fd_remove_result(struct gfm_connection *gfm_server,
+	gfarm_mode_t *modep)
+{
+	return (gfm_client_rpc_result(gfm_server, 0, ""));
+}
+
 /*
  * compound request - convenience function
  */

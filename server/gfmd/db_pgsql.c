@@ -2119,7 +2119,7 @@ static gfarm_error_t
 gfarm_pgsql_user_auth_load(void *closure,
 	void (*callback)(void *, struct db_user_auth_arg *))
 {
-	struct db_inode_dirset_arg tmp_info;
+	struct db_user_auth_arg tmp_info;
 	struct db_user_auth_trampoline_closure c;
 
 	c.closure = closure;
@@ -4417,6 +4417,221 @@ gfarm_pgsql_mdhost_load(void *closure,
 
 /**********************************************************************/
 
+static gfarm_error_t
+gfarm_pgsql_process_alloc(gfarm_uint64_t seqnum,
+	struct db_process_arg *arg)
+{
+	gfarm_error_t e;
+	const char *paramValues[4];
+	int paramLengths[4];
+	int paramFormats[4];
+	char pid[GFARM_INT64STRLEN + 1];
+	char keyType[GFARM_INT32STRLEN + 1];
+
+	snprintf(pid, sizeof pid, "%" GFARM_PRId64, arg->pid);
+	snprintf(keyType, sizeof keyType, "%d", arg->keyType);
+	paramValues[0] = pid;
+	paramValues[1] = arg->username;
+	paramValues[2] = keyType;
+	paramValues[3] = arg->shared_key;
+	paramLength[0] = strlen(paramValues[0]);
+	paramLength[1] = strlen(paramValues[1]);
+	paramLength[2] = strlen(paramValues[2]);
+	paramLength[3] = arg->key_len;
+	paramFormats[0] = 0; /* as text */
+	paramFormats[1] = 0; /* as text */
+	paramFormats[2] = 0; /* as text */
+	paramFormats[3] = 1; /* as binary */
+	e = gfarm_pgsql_insert(
+	    seqnum, 
+	    "INSERT INTO GfarmProcess (pid, username, keyType, sharedKey) "
+		"VALUES ($1, $2, $3, $4)",
+	    4, /* number of params */
+	    NULL, /* param types */
+	    paramValues,
+	    paramLengths,
+	    paramFormats,
+	    0, /* ask for text results */
+	    "pgsql_process_alloc");
+
+	free_arg(arg);
+	return (e);
+}
+
+static gfarm_error_t
+gfarm_pgsql_process_free(gfarm_uint64_t seqnum,
+	struct db_process_pkey_arg *arg)
+{
+	gfarm_error_t e;
+	const char *paramValues[1];
+	char pid[GFARM_INT64STRLEN + 1];
+
+	snprintf(pid, sizeof pid, "%" GFARM_PRId64, arg->pid);
+	paramValues[0] = pid;
+	e = gfarm_pgsql_update_or_delete(
+	    seqnum, 
+	    "DELETE FROM GfarmProcess WHERE pid = $1",
+	    1, /* number of params */
+	    NULL, /* param types */
+	    paramValues,
+	    NULL, /* param lengths */
+	    NULL, /* param formats */
+	    0, /* ask for text results */
+	    "pgsql_process_free");
+
+	free_arg(arg);
+	return (e);
+}
+
+static void
+process_set_fields_from_copy_binary(
+	const char *buf, int residual, void *vinfo)
+{
+#if 1
+	/* GFARM_ERR_FUNCTION_NOT_IMPLEMENTED */
+	assert(0);
+#else
+	struct db_process_arg *info = vinfo;
+	uint16_t num_fields;
+
+	COPY_BINARY(num_fields, buf, residual,
+	    "pgsql_user_auth_dir_load: field number");
+	num_fields = ntohs(num_fields);
+	if (num_fields < 10) /* allow fields addition in future */
+		gflog_fatal(GFARM_MSG_UNFIXED,
+		    "pgsql_procss_load: fields = %d", num_fields);
+
+	XXX
+#endif
+}
+
+static gfarm_error_t
+gfarm_pgsql_process_load(void *closure,
+	void (*callback)(void *, struct db_process_arg *))
+{
+	struct db_process_arg tmp_info;
+	struct db_process_trampoline_closure c;
+
+	c.closure = closure;
+	c.callback = callback;
+
+	return (gfarm_pgsql_generic_load(
+	    "COPY GfarmProcess TO STDOUT BINARY",
+	    &tmp_info, db_process_callback_trampoline, &c,
+	    &db_base_process_arg_ops,
+	    process_set_fields_from_copy_binary,
+	    "pgsql_process_load"));
+}
+
+/**********************************************************************/
+
+static gfarm_error_t
+gfarm_pgsql_spool_opened(gfarm_uint64_t seqnum,
+	struct db_file_desc_arg *arg)
+{
+	gfarm_error_t e;
+	const char *paramValues[10];
+	char pid[GFARM_INT64STRLEN + 1];
+	char fd[GFARM_INT32STRLEN + 1];
+	char open_flags[GFARM_INT32STRLEN + 1];
+	char inum[GFARM_INT64STRLEN + 1];
+	char igen[GFARM_INT64STRLEN + 1];
+	char client_port[GFARM_INT32STRLEN + 1];
+	char gfsd_port[GFARM_INT32STRLEN + 1];
+	char fd_option[GFARM_INT64STRLEN + 1];
+
+	snprintf(pid, sizeof pid, "%" GFARM_PRId64, arg->pid);
+	snprintf(fd, sizeof fd, "%d", arg->fd);
+	snprintf(open_flags, sizeof open_flags, "%d", arg->open_flags);
+	snprintf(inum, sizeof inum, "%" GFARM_PRId64, arg->inum);
+	snprintf(igen, sizeof igen, "%" GFARM_PRId64, arg->igen);
+	snprintf(client_port, sizeof client_port, "%d", arg->client_port);
+	snprintf(gfsd_port, sizeof gfsd_port, "%d", arg->gfsd_port);
+	snprintf(fd_option, sizeof fd_option, "%" GFARM_PRId64,
+	    arg->fd_option);
+	paramValues[0] = pid;
+	paramValues[1] = fd;
+	paramValues[2] = open_flags;
+	paramValues[3] = inumber;
+	paramValues[4] = igen;
+	paramValues[5] = arg->client_host;
+	paramValues[6] = client_port;
+	paramValues[7] = arg->gfsd_host;
+	paramValues[8] = gfsd_port;
+	paramValues[9] = fd_option;
+	e = gfarm_pgsql_insert(
+	    seqnum, 
+	    "INSERT INTO GfarmFileDescriptor (pid, fd, openFlags, "
+	    "inumber, igen, clientHost, clientPort, gfsdHost, gfsdPort, "
+	    "fdOption) "
+		"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+	    10, /* number of params */
+	    NULL, /* param types */
+	    paramValues,
+	    NULL, /* param lengths */
+	    NULL, /* param formats */
+	    0, /* ask for text results */
+	    "pgsql_spool_opened");
+
+	free_arg(arg);
+	return (e);
+}
+
+static gfarm_error_t
+gfarm_pgsql_spool_closed(gfarm_uint64_t seqnum,
+	struct db_file_desc_pkey_arg *arg)
+{
+	gfarm_error_t e;
+	const char *paramValues[2];
+	char pid[GFARM_INT64STRLEN + 1];
+
+	snprintf(pid, sizeof pid, "%" GFARM_PRId64, arg->pid);
+	snprintf(fd, sizeof fd, "%d", arg->fd);
+	paramValues[0] = pid;
+	paramValues[1] = fd;
+	e = gfarm_pgsql_update_or_delete(
+	    seqnum, 
+	    "DELETE FROM GfarmFileDescriptor WHERE pid = $1 AND fd = $2",
+	    2, /* number of params */
+	    NULL, /* param types */
+	    paramValues,
+	    NULL, /* param lengths */
+	    NULL, /* param formats */
+	    0, /* ask for text results */
+	    "pgsql_process_free");
+
+	free_arg(arg);
+	return (e);
+}
+
+static void
+file_desc_set_fields_from_copy_binary(
+	const char *buf, int residual, void *vinfo)
+{
+	/* GFARM_ERR_FUNCTION_NOT_IMPLEMENTED */
+	assert(0);
+}
+
+static gfarm_error_t
+gfarm_pgsql_file_desc_load(void *closure,
+	void (*callback)(void *, struct db_file_desc_arg *))
+{
+	struct db_file_desc_arg tmp_info;
+	struct db_file_desc_trampoline_closure c;
+
+	c.closure = closure;
+	c.callback = callback;
+
+	return (gfarm_pgsql_generic_load(
+	    "COPY GfarmFileDescriptor TO STDOUT BINARY",
+	    &tmp_info, db_file_desc_callback_trampoline, &c,
+	    &db_base_file_desc_arg_ops,
+	    file_desc_set_fields_from_copy_binary,
+	    "pgsql_file_desc_load"));
+}
+
+/**********************************************************************/
+
 /* DO NOT REMOVE: this interfaces is provided for a private extension */
 /* The official gfmd source code shouldn't use these interface */
 PGconn *
@@ -4527,4 +4742,12 @@ const struct db_ops db_pgsql_ops = {
 	gfarm_pgsql_mdhost_load,
 
 	gfarm_pgsql_fsngroup_modify,
+
+	gfarm_pgsql_process_alloc,
+	gfarm_pgsql_process_free,
+	gfarm_pgsql_process_load,
+
+	gfarm_pgsql_spool_opened,
+	gfarm_pgsql_spool_closed,
+	gfarm_pgsql_file_desc_closed,
 };

@@ -2316,3 +2316,164 @@ db_mdhost_load(void *closure,
 	gfarm_mutex_unlock(&db_access_mutex, diag, DB_ACCESS_MUTEX_DIAG);
 	return (e);
 }
+
+static struct db_process_arg *
+db_process_arg_alloc(gfarm_pid_t pid, char *user,
+	int key_type, int key_len, char *shared_key)
+
+{
+	int overflow = 0;
+	size_t sz, usize;
+	struct db_process_arg *arg = NULL;
+
+	assert(user != NULL && user[0] != '\0');
+	usize = gfarm_size_add(&overflow, strlen(user), 1);
+	sz = gfarm_size_add(&overflow, sizeof(*arg), usize);
+	sz = gfarm_size_add(&overflow, sz, key_len);
+	if (!overflow)
+		arg = malloc(sz);
+	if (overflow || arg == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "allocation of 'db_process_arg' failed or overflow");
+		return (NULL);
+	}
+	arg->username = (char *)arg + sizeof(*arg);
+	arg->shared_key = arg->username + usize;
+
+	arg->pid = pid;
+	strcpy(arg->username, user);
+	arg->key_type = key_type;
+	arg->key_len = key_len;
+	memcpy(arg->shared_key, shared_key, key_len);
+	return (arg);
+}
+
+gfarm_error_t
+db_process_alloc(gfarm_pid_t pid, char *user,
+	int key_type, int key_len, char *shared_key)
+{
+	struct db_process_arg *arg = db_process_arg_alloc(
+		pid, user, key_type, key_len, shared_key);
+
+	if (arg == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "db_process_arg_alloc failed");
+		return (GFARM_ERR_NO_MEMORY);
+	}
+gflog_info(GFARM_MSG_UNFIXED, "db_process_alloc pid %lld user %s", (long long)pid, user);
+gflog_info(GFARM_MSG_UNFIXED, "db_process_alloc_arg pid %lld user %s", (long long)arg->pid, arg->username);
+	return (db_enter_sn((dbq_entry_func_t)ops->process_alloc, arg));
+}
+
+gfarm_error_t
+db_process_free(gfarm_pid_t pid)
+{
+	struct db_process_pkey_arg *arg;
+
+	GFARM_MALLOC(arg);
+	if (arg == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "allocation of 'db_process_pkey_arg' failed");
+		return (GFARM_ERR_NO_MEMORY);
+	}
+	arg->pid = pid;
+	return (db_enter_sn((dbq_entry_func_t)ops->process_free, arg));
+}
+
+gfarm_error_t
+db_process_load(void *closure,
+	void (*callback)(void *, struct db_process_arg *))
+{
+	gfarm_error_t e;
+	static const char diag[] = "db_process_load";
+
+	gfarm_mutex_lock(&db_access_mutex, diag, DB_ACCESS_MUTEX_DIAG);
+	e = ((*ops->process_load)(closure, callback));
+	gfarm_mutex_unlock(&db_access_mutex, diag, DB_ACCESS_MUTEX_DIAG);
+	return (e);
+}
+
+static struct db_file_desc_arg *
+db_file_desc_arg_alloc(gfarm_pid_t pid, int fd, int open_flags,
+	gfarm_ino_t inum, gfarm_uint64_t igen,
+	const char *client_host, int client_port,
+	char *gfsd_host, int gfsd_port)
+{
+	int overflow = 0;
+	size_t sz = 0, chsize, ghsize;
+	struct db_file_desc_arg *arg = NULL;
+
+	assert(client_host != NULL && client_host[0] != '\0');
+	assert(gfsd_host != NULL && gfsd_host[0] != '\0');
+	chsize = gfarm_size_add(&overflow, strlen(client_host), 1);
+	ghsize = gfarm_size_add(&overflow, strlen(gfsd_host), 1);
+	sz = gfarm_size_add(&overflow, sizeof(*arg), chsize);
+	sz = gfarm_size_add(&overflow, sz, ghsize);
+	if (!overflow)
+		arg = malloc(sz);
+	if (overflow || arg == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "allocation of 'db_file_desc_arg' failed or overflow");
+		return (NULL);
+	}
+	arg->client_host = (char *)arg + sizeof(*arg);
+	arg->gfsd_host = arg->client_host + chsize;
+
+	arg->pid = pid;
+	arg->fd = fd;
+	arg->open_flags = open_flags;
+	arg->inum = inum;
+	arg->igen = igen;
+	strcpy(arg->client_host, client_host);
+	arg->client_port = client_port;
+	strcpy(arg->gfsd_host, gfsd_host);
+	arg->gfsd_port = gfsd_port;
+	return (arg);
+}
+
+gfarm_error_t
+db_spool_opened(gfarm_pid_t pid, int fd, int open_flags,
+	gfarm_ino_t inum, gfarm_uint64_t igen,
+	const char *client_host, int client_port,
+	char *gfsd_host, int gfsd_port)
+{
+	struct db_file_desc_arg *arg = db_file_desc_arg_alloc(
+		pid, fd, open_flags, inum, igen, client_host, client_port,
+		gfsd_host, gfsd_port);
+
+	if (arg == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "db_file_desc_arg_alloc failed");
+		return (GFARM_ERR_NO_MEMORY);
+	}
+	return (db_enter_sn((dbq_entry_func_t)ops->spool_opened, arg));
+}
+
+gfarm_error_t
+db_spool_closed(gfarm_pid_t pid, int fd)
+{
+	struct db_file_desc_pkey_arg *arg;
+
+	GFARM_MALLOC(arg);
+	if (arg == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "allocation of 'db_file_desc_pkey_arg' failed");
+		return (GFARM_ERR_NO_MEMORY);
+	}
+	arg->pid = pid;
+	arg->fd = fd;
+	return (db_enter_sn((dbq_entry_func_t)ops->spool_closed, arg));
+}
+
+gfarm_error_t
+db_file_desc_load(void *closure,
+	void (*callback)(void *, struct db_file_desc_arg *))
+{
+	gfarm_error_t e;
+	static const char diag[] = "db_file_desc_load";
+
+	gfarm_mutex_lock(&db_access_mutex, diag, DB_ACCESS_MUTEX_DIAG);
+	e = ((*ops->file_desc_load)(closure, callback));
+	gfarm_mutex_unlock(&db_access_mutex, diag, DB_ACCESS_MUTEX_DIAG);
+	return (e);
+}

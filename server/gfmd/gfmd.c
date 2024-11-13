@@ -1803,6 +1803,9 @@ gfmd_modules_init_default(int table_size)
 	dirset_init();
 	quota_dir_init();
 
+	process_init();
+	file_desc_init();
+
 	peer_init(table_size);
 	job_table_init(table_size);
 

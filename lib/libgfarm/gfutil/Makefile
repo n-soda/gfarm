@@ -94,3 +94,25 @@ sleep.lo: nanosec.h gfutil.h
 strarray.lo:
 timer.lo: timer.h
 timeval.lo: gfutil.h
+
+###
+
+id_table_test: id_table.h id_table.c
+	$(LTCOMPILE) -o id_table_test.o -c -DTEST $(srcdir)/id_table.c
+	$(LTLINK) -o id_table_test id_table_test.o \
+		$(COMMON_LDFLAGS) $(GFARMLIB) $(LIBS)
+
+id_table_test_run: id_table_test
+	bash -c 'diff -u \
+		<(./id_table_test <id_table_test.input 2>&1) \
+		<(sed '/^#/d' id_table_test.output)'
+
+id_table_test.gcno: id_table.h id_table.c
+	$(LTCOMPILE) -coverage -o id_table_test.o \
+		-c -DTEST $(srcdir)/id_table.c
+	$(LTLINK) -coverage -o id_table_test id_table_test.o \
+		$(COMMON_LDFLAGS) $(GFARMLIB) $(LIBS)
+
+id_table_test.gcda: id_table_test.gcno id_table_test_run
+id_table.c.gcov: id_table_test.gcda
+	gcov id_table_test.gcda

@@ -50,6 +50,7 @@ SUBDIRS = \
 	gfrepcheck \
 	gfrm \
 	gfrmdir \
+	gfrmof \
 	gfsched \
 	gfsetfacl \
 	gfspoolgen \

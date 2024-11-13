@@ -613,6 +613,52 @@ gfarm_none_mdhost_load(void *closure,
 
 /**********************************************************************/
 
+static gfarm_error_t
+gfarm_none_process_alloc(gfarm_uint64_t seqnum,
+	struct db_process_arg *arg)
+{
+	free_arg(arg);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+gfarm_none_process_free(gfarm_uint64_t seqnum, struct db_process_pkey_arg *arg)
+{
+	free_arg(arg);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+gfarm_none_process_load(void *closure,
+	void (*callback)(void *, struct db_process_arg *))
+{
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+gfarm_none_spool_opened(gfarm_uint64_t seqnum, struct db_file_desc_arg *arg)
+{
+	free_arg(arg);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+gfarm_none_spool_closed(gfarm_uint64_t seqnum,
+	struct db_file_desc_pkey_arg *arg)
+{
+	free_arg(arg);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+static gfarm_error_t
+gfarm_none_file_desc_load(void *closure,
+	void (*callback)(void *, struct db_file_desc_arg *))
+{
+	return (GFARM_ERR_NO_ERROR);
+}
+
+/**********************************************************************/
+
 const struct db_ops db_none_ops = {
 	gfarm_none_initialize,
 	gfarm_none_terminate,
@@ -713,4 +759,12 @@ const struct db_ops db_none_ops = {
 	gfarm_none_mdhost_load,
 
 	gfarm_none_fsngroup_modify,
+
+	gfarm_none_process_alloc,
+	gfarm_none_process_free,
+	gfarm_none_process_load,
+
+	gfarm_none_spool_opened,
+	gfarm_none_spool_closed,
+	gfarm_none_file_desc_load,
 };

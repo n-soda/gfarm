@@ -3048,7 +3048,7 @@ reopen_resume(struct peer *peer, void *closure, int *suspendedp)
 {
 	gfarm_error_t e;
 	struct reopen_resume_arg *arg = closure;
-	struct host *spool_host;
+	struct host *spool_host = NULL;
 	struct process *process;
 	gfarm_ino_t inum = 0;
 	gfarm_uint64_t gen = 0;
@@ -3064,11 +3064,7 @@ reopen_resume(struct peer *peer, void *closure, int *suspendedp)
 
 	giant_lock();
 
-	if ((spool_host = peer_get_host(peer)) == NULL) {
-		gflog_debug(GFARM_MSG_1002261,
-		    "%s: peer_get_host() failed", diag);
-		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
-	} else if ((process = peer_get_process(peer)) == NULL) {
+	if ((process = peer_get_process(peer)) == NULL) {
 		gflog_debug(GFARM_MSG_1002262,
 		    "%s: peer_get_process() failed", diag);
 		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
@@ -3081,6 +3077,7 @@ reopen_resume(struct peer *peer, void *closure, int *suspendedp)
 		    (long long)inum, (long long)gen, flags);
 		e = GFARM_ERR_READ_ONLY_FILE_SYSTEM;
 	} else {
+		spool_host = peer_get_host(peer);
 		if (db_begin(diag) == GFARM_ERR_NO_ERROR)
 			transaction = 1;
 		e = process_reopen_file(process, peer, spool_host, arg->fd,
@@ -3096,7 +3093,8 @@ reopen_resume(struct peer *peer, void *closure, int *suspendedp)
 			}
 		}
 	}
-	if (gfarm_ctxp->file_trace && e == GFARM_ERR_NO_ERROR) {
+	if (gfarm_ctxp->file_trace && e == GFARM_ERR_NO_ERROR &&
+	    spool_host != NULL) {
 		trace_seq_num = trace_log_get_sequence_number();
 		gettimeofday(&tv, NULL);
 	}
@@ -3106,7 +3104,8 @@ reopen_resume(struct peer *peer, void *closure, int *suspendedp)
 	e2 = gfm_server_put_reply(peer, diag, e, "lliii",
 	    inum, gen, mode, flags, to_create);
 
-	if (gfarm_ctxp->file_trace && e == GFARM_ERR_NO_ERROR) {
+	if (gfarm_ctxp->file_trace && e == GFARM_ERR_NO_ERROR &&
+	    spool_host != NULL) {
 		gflog_trace(GFARM_MSG_1003307,
 		    "%lld/%010ld.%06ld////REPLICATE/%s/%d/%s/%lld/%lld///////",
 		    (long long int)trace_seq_num,
@@ -3146,11 +3145,8 @@ gfm_server_reopen(struct peer *peer, int from_client, int skip,
 	giant_lock();
 	read_only = gfarm_read_only_mode();
 
-	if (from_client) { /* from gfsd only */
+	if (!from_client && (spool_host = peer_get_host(peer)) == NULL) {
 		gflog_debug(GFARM_MSG_1001935, "operation is not permitted");
-		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
-	} else if ((spool_host = peer_get_host(peer)) == NULL) {
-		gflog_debug(GFARM_MSG_1001936, "peer_get_host() failed");
 		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
 	} else if ((process = peer_get_process(peer)) == NULL) {
 		gflog_debug(GFARM_MSG_1001937, "peer_get_process() failed");
@@ -3191,7 +3187,8 @@ gfm_server_reopen(struct peer *peer, int from_client, int skip,
 			}
 		}
 	}
-	if (gfarm_ctxp->file_trace && to_create && e == GFARM_ERR_NO_ERROR) {
+	if (gfarm_ctxp->file_trace && to_create && e == GFARM_ERR_NO_ERROR &&
+	    spool_host != NULL) {
 		trace_seq_num = trace_log_get_sequence_number();
 		gettimeofday(&tv, NULL);
 	}
@@ -3200,7 +3197,8 @@ gfm_server_reopen(struct peer *peer, int from_client, int skip,
 	e2 = gfm_server_put_reply(peer, diag, e, "lliii",
 	    inum, gen, mode, flags, to_create);
 
-	if (gfarm_ctxp->file_trace && to_create && e == GFARM_ERR_NO_ERROR) {
+	if (gfarm_ctxp->file_trace && to_create && e == GFARM_ERR_NO_ERROR &&
+	    spool_host != NULL) {
 		gflog_trace(GFARM_MSG_1003308,
 		    "%lld/%010ld.%06ld////REPLICATE/%s/%d/%s/%lld/%lld///////",
 		    (long long int)trace_seq_num,

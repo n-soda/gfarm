@@ -202,3 +202,24 @@ CREATE TABLE MdHost (
 	flags		INTEGER		NOT NULL
 );
 
+CREATE TABLE GfarmProcess (
+	pid		INT8		PRIMARY KEY,
+	username	VARCHAR(64)	NOT NULL,
+	keyType		INTEGER		NOT NULL,
+	sharedKey	BYTEA		NOT NULL
+);
+
+CREATE TABLE GfarmFileDescriptor (
+	pid		INT8		NOT NULL
+		REFERENCES GfarmProcess(pid) ON DELETE CASCADE,
+	fd		INTEGER		NOT NULL,
+	openFlags	INT8		NOT NULL,
+	inumber		INT8		NOT NULL,
+	igen		INT8		NOT NULL,
+	clientHost	VARCHAR(256)	NOT NULL,
+	clientPort	INTEGER		NOT NULL,
+	gfsdHost	VARCHAR(256)	NOT NULL,
+	gfsdPort	INTEGER		NOT NULL,
+	fdOption	INT8		NOT NULL,
+	PRIMARY KEY(pid, fd)
+);

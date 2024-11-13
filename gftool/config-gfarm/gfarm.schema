@@ -119,6 +119,31 @@ attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.32 NAME 'authIDType'
 attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.33 NAME 'authUserId'
 	SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 SINGLE-VALUE )
 
+attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.34 NAME 'pid'
+	EQUALITY caseExactIA5Match
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 SINGLE-VALUE )
+attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.35 NAME 'keyType'
+	EQUALITY caseExactIA5Match
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 SINGLE-VALUE )
+attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.37 NAME 'sharedKey'
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.5 SINGLE-VALUE )
+
+attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.38 NAME 'fd'
+	EQUALITY caseExactIA5Match
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 SINGLE-VALUE )
+attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.39 NAME 'openFlags'
+	EQUALITY caseExactIA5Match
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 SINGLE-VALUE )
+attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.1 NAME 'clientHostname'
+	EQUALITY caseIgnoreIA5Match
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 SINGLE-VALUE )
+attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.2 NAME 'clientPort'
+	EQUALITY caseExactIA5Match
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 SINGLE-VALUE )
+attributetype ( 1.3.6.1.4.1.13122.2.1.2924.101.2.38 NAME 'fdOption'
+	EQUALITY caseExactIA5Match
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 SINGLE-VALUE )
+
 # Object Class Definitions
 # 1.3.6.1.4.1.13122.2.1.2924.101.3.x
 
@@ -169,3 +194,14 @@ objectclass ( 1.3.6.1.4.1.13122.2.1.2924.101.3.9
 objectclass ( 1.3.6.1.4.1.13122.2.1.2924.101.3.10
 	NAME 'GFarmUserAuth' SUP top STRUCTURAL
 	MUST ( username $ authIDType $ authUserID ) )
+
+objectclass ( 1.3.6.1.4.1.13122.2.1.2924.101.3.11
+	NAME 'GFarmProcess' SUP top STRUCTURAL
+	MUST ( pid $ username $ keyType & sharedKey ) )
+
+objectclass ( 1.3.6.1.4.1.13122.2.1.2924.101.3.12
+	NAME 'GfarmFileDescriptor' SUP top STRUCTURAL
+	MUST ( pid $ fd $ openFlags $ inumber $ igen $
+		clientHostname $ clientPort $
+		hostname $ port $
+		fdOption ) )

@@ -1,6 +1,7 @@
 #include <pthread.h>	/* db_access.h currently needs this */
 #include <stdarg.h>
 #include <assert.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,7 @@
 #include "user.h"
 #include "inode.h"
 #include "process.h"
+#include "mdhost.h"
 #include "host.h"
 
 #define FILETAB_INITIAL		16
@@ -63,6 +65,9 @@ struct process {
 	struct tenant *tenant;
 	gfarm_ino_t root_inum;
 	gfarm_uint64_t root_igen;
+
+	int flags;
+#define PROCESS_PROPAGATED	1
 };
 
 static struct gfarm_id_table *process_id_table = NULL;
@@ -157,9 +162,9 @@ file_opening_free(struct file_opening *fo, gfarm_mode_t mode)
 }
 
 gfarm_error_t
-process_alloc(struct user *user,
+process_alloc0(struct user *user,
 	gfarm_int32_t keytype, size_t keylen, char *sharedkey,
-	struct process **processp, gfarm_pid_t *pidp)
+	int to_create, gfarm_pid_t *pidp, struct process **processp)
 {
 	gfarm_error_t e;
 	struct process *process;
@@ -199,7 +204,17 @@ process_alloc(struct user *user,
 			"allocation of 'filetab' failed");
 		return (GFARM_ERR_NO_MEMORY);
 	}
-	process = gfarm_id_alloc(process_id_table, &pid32);
+	if (to_create) {
+		process = gfarm_id_alloc(process_id_table, &pid32);
+	} else if (*pidp <= 0 || (gfarm_uint64_t)*pidp >= INT_MAX) {
+		gflog_error(GFARM_MSG_UNFIXED, "pid out of domain: %lli",
+		    (long long)*pidp);
+		free(filetab);
+		return (GFARM_ERR_NUMERICAL_ARGUMENT_OUT_OF_DOMAIN);
+	} else {
+		pid32 = *pidp;
+		process = gfarm_id_enter(process_id_table, pid32);
+	}
 	if (process == NULL) {
 		free(filetab);
 		gflog_debug(GFARM_MSG_1001596,
@@ -227,6 +242,15 @@ process_alloc(struct user *user,
 	return (GFARM_ERR_NO_ERROR);
 }
 
+gfarm_error_t
+process_alloc(struct user *user,
+	gfarm_int32_t keytype, size_t keylen, char *sharedkey,
+	struct process **processp, gfarm_pid_t *pidp)
+{
+	return (process_alloc0(user, keytype, keylen, sharedkey,
+	    1, pidp, processp));
+}
+
 static void
 process_add_child(struct process *parent, struct process *child)
 {
@@ -244,11 +268,15 @@ process_add_ref(struct process *process)
 }
 
 static gfarm_error_t process_close_or_abort_file(struct process *,
-	struct peer *, int, char **, int, const char *);
+	struct peer *, int, int, char **, int, const char *);
 
-/* NOTE: caller of this function should acquire giant_lock as well */
+/*
+ * NOTE:
+ * - caller of this function should acquire giant_lock as well
+ * - peer may be NULL for gfmd slaves or after failover
+ */
 static int
-process_del_ref(struct process *process, struct peer *peer)
+process_del_ref(struct process *process, struct peer *peer, int from_client)
 {
 	int fd;
 	gfarm_mode_t mode;
@@ -261,12 +289,8 @@ process_del_ref(struct process *process, struct peer *peer)
 		fo = process->filetab[fd];
 		if (fo != NULL) {
 			mode = inode_get_mode(fo->inode);
-			if (fo->opener == peer ||
-			    (inode_is_file(fo->inode) &&
-			     fo->u.f.spool_opener == peer)) {
-				process_close_or_abort_file(
-				    process, peer, fd, NULL, 1, diag);
-			}
+			process_close_or_abort_file(
+			    process, peer, from_client, fd, NULL, 1, diag);
 		}
 	}
 
@@ -287,7 +311,10 @@ process_del_ref(struct process *process, struct peer *peer)
 			    diag, (long long)process->pid, (int)fd,
 			    (long long)inode_get_number(fo->inode),
 			    (long long)inode_get_gen(fo->inode), (int)mode,
-			    peer_get_username(peer), peer_get_hostname(peer),
+			    peer == NULL ? "<not-opened>" :
+			    peer_get_username(peer),
+			    peer == NULL ? "<not-opened>" :
+			    peer_get_hostname(peer),
 			    fo->u.f.spool_opener == NULL ? "closed already" :
 			    peer_get_hostname(fo->u.f.spool_opener),
 			    (fo->flag & GFARM_FILE_GFSD_ACCESS_REVOKED) != 0 ?
@@ -314,6 +341,42 @@ process_del_ref(struct process *process, struct peer *peer)
 	return (0); /* process freed */
 }
 
+/* slave gfmd only, called from db_journal_apply.c */
+gfarm_error_t
+process_enter_in_slave(gfarm_pid_t pid, struct user *user,
+	int key_type, size_t key_len, char *shared_key)
+{
+	gfarm_error_t e;
+	struct process *process;
+
+	e = process_alloc0(user, key_type, key_len, shared_key, 0,
+	    &pid, &process);
+	if (e != GFARM_ERR_NO_ERROR) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "process_enter_in_slave(): pid %lld user %s: %s",
+		    (long long)pid, user_tenant_name(user),
+		    gfarm_error_string(e));
+		return (e);
+	}
+	process_add_ref(process);
+	return (GFARM_ERR_NO_ERROR);
+}
+
+/* slave gfmd only, called from db_journal_apply.c */
+gfarm_error_t
+process_free_in_slave(gfarm_pid_t pid)
+{
+	struct process *process = process_lookup(pid);
+
+	if (process == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "process_lookup(%lld) failed", (long long)pid);
+		return (GFARM_ERR_NO_SUCH_PROCESS);
+	}
+	(void)process_del_ref(process, NULL, 0);
+	return (GFARM_ERR_NO_ERROR);
+}
+
 /* NOTE: caller of this function should acquire giant_lock as well */
 void
 process_attach_peer(struct process *process, struct peer *peer)
@@ -331,7 +394,7 @@ void
 process_detach_peer(struct process *process, struct peer *peer,
 	const char *diag)
 {
-	(void)process_del_ref(process, peer);
+	(void)process_del_ref(process, peer, peer_get_host(peer) == NULL);
 }
 
 gfarm_pid_t
@@ -363,6 +426,81 @@ process_get_root_igen(struct process *process)
 {
 	return (process->root_igen);
 }
+
+gfarm_error_t
+process_propagate(struct process *process)
+{
+	gfarm_error_t e;
+
+	if ((process->flags & PROCESS_PROPAGATED) != 0)
+		return (GFARM_ERR_NO_ERROR);
+
+	e = db_process_alloc(process->pid, user_tenant_name(process->user),
+	    /* only KEY_TYPE_SHAREDSECRET exists for now */
+	    GFM_PROTO_PROCESS_KEY_TYPE_SHAREDSECRET,
+	    GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET, process->sharedkey);
+	if (e != GFARM_ERR_NO_ERROR) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "db_process_alloc: %s", gfarm_error_string(e));
+		return (e);
+	}
+	process->flags |= PROCESS_PROPAGATED;
+	return (GFARM_ERR_NO_ERROR);
+}
+
+gfarm_error_t
+process_propagate_spool_opened(struct process *process,
+	int fd, struct file_opening *fo)
+{
+	gfarm_error_t e;
+	int client_port, gfsd_peer_port;
+
+	e = process_propagate(process);
+	if (e != GFARM_ERR_NO_ERROR)
+		return (e);
+
+	if (fo->opener == NULL ||
+	    (e = peer_get_port(fo->opener, &client_port))
+	    != GFARM_ERR_NO_ERROR)
+		client_port = 0;
+
+	if (fo->u.f.spool_host == NULL ||
+	    (e = peer_get_port(fo->opener, &gfsd_peer_port))
+	    != GFARM_ERR_NO_ERROR)
+		gfsd_peer_port = 0;
+
+	e = db_spool_opened(process->pid, fd, fo->flag,
+	    inode_get_number(fo->inode), inode_get_gen(fo->inode),
+	    fo->opener != NULL ? peer_get_hostname(fo->opener) : "",
+	    client_port,
+	    fo->u.f.spool_host != NULL ? host_name(fo->u.f.spool_host) : "",
+	    gfsd_peer_port);
+	if (e != GFARM_ERR_NO_ERROR)
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "db_spool_opened: %s", gfarm_error_string(e));
+	return (e);
+
+}
+
+gfarm_error_t
+process_propagate_spool_closed(struct process *process, int fd)
+{
+	gfarm_error_t e;
+
+	if ((process->flags & PROCESS_PROPAGATED) == 0) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "invalid spool_closed pid %lld descriptor %d",
+		    (long long)process->pid, fd);
+		return (GFARM_ERR_INTERNAL_ERROR);
+	}
+
+	e = db_spool_closed(process->pid, fd);
+	if (e != GFARM_ERR_NO_ERROR)
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "db_spool_closed: %s", gfarm_error_string(e));
+	return (e);
+}
+
 
 gfarm_error_t
 process_verify_fd(struct process *process, struct peer *peer, int fd,
@@ -398,7 +536,8 @@ process_get_file_opening(struct process *process, struct peer *peer, int fd,
 	gflog_info(GFARM_MSG_1003805,
 	    "%s: pid:%lld fd:%d by %s@%s: bad file descriptor",
 	    diag, (long long)process->pid, (int)fd,
-	    peer_get_username(peer), peer_get_hostname(peer));
+	    peer == NULL ? "<not-opened>" : peer_get_username(peer),
+	    peer == NULL ? "<not-opened>" : peer_get_hostname(peer));
 	return (GFARM_ERR_BAD_FILE_DESCRIPTOR);
 }
 
@@ -778,6 +917,37 @@ process_new_generation_by_fd_abort(struct process *process, struct peer *peer,
 	    (long long)inode_get_size(fo->inode), gfarm_error_string(e));
 }
 
+static gfarm_error_t
+process_alloc_fd_space(struct process *process, int fd)
+{
+	int fd2, new_nfiles;
+	struct file_opening **p;
+
+	if (fd < process->nfiles)
+		return (GFARM_ERR_NO_ERROR);
+
+	if (fd >= gfarm_max_open_files) {
+		gflog_debug(GFARM_MSG_1001623,
+			"too many open files");
+		return (GFARM_ERR_TOO_MANY_OPEN_FILES);
+	}
+	new_nfiles = process->nfiles * FILETAB_MULTIPLY;
+	if (new_nfiles > gfarm_max_open_files)
+		new_nfiles = gfarm_max_open_files;
+	p = realloc(process->filetab, sizeof(*p) * new_nfiles);
+	if (p == NULL) {
+		gflog_debug(GFARM_MSG_1001624,
+			"re-allocation of 'process' failed");
+		return (GFARM_ERR_NO_MEMORY);
+	}
+	process->filetab = p;
+	process->nfiles = new_nfiles;
+	for (fd2 = fd; fd2 < process->nfiles; fd2++)
+		process->filetab[fd2] = NULL;
+
+	return (GFARM_ERR_NO_ERROR);
+}
+
 gfarm_error_t
 process_open_file(struct process *process, struct inode *file,
 	gfarm_int32_t flag, int created,
@@ -785,34 +955,26 @@ process_open_file(struct process *process, struct inode *file,
 	gfarm_int32_t *fdp)
 {
 	gfarm_error_t e;
-	int fd, fd2, new_nfiles;
-	struct file_opening **p, *fo;
+	int fd;
+	struct file_opening *fo;
 
 	/* XXX FIXME cache minimum unused fd, and avoid liner search */
 	for (fd = 0; fd < process->nfiles; fd++) {
 		if (process->filetab[fd] == NULL)
 			break;
 	}
+
 	if (fd >= process->nfiles) {
-		if (fd >= gfarm_max_open_files) {
-			gflog_debug(GFARM_MSG_1001623,
-				"too many open files");
-			return (GFARM_ERR_TOO_MANY_OPEN_FILES);
+		e = process_alloc_fd_space(process, fd);
+		if (e != GFARM_ERR_NO_ERROR) {
+			gflog_debug(GFARM_MSG_UNFIXED,
+			    "process_open_file(): "
+			    "process_alloc_fd_space(): %s",
+			    gfarm_error_string(e));
+			return (e);
 		}
-		new_nfiles = process->nfiles * FILETAB_MULTIPLY;
-		if (new_nfiles > gfarm_max_open_files)
-			new_nfiles = gfarm_max_open_files;
-		p = realloc(process->filetab, sizeof(*p) * new_nfiles);
-		if (p == NULL) {
-			gflog_debug(GFARM_MSG_1001624,
-				"re-allocation of 'process' failed");
-			return (GFARM_ERR_NO_MEMORY);
-		}
-		process->filetab = p;
-		process->nfiles = new_nfiles;
-		for (fd2 = fd + 1; fd2 < process->nfiles; fd2++)
-			process->filetab[fd2] = NULL;
 	}
+
 	fo = file_opening_alloc(file, peer, spool_host,
 	    flag | (created ? GFARM_FILE_CREATE : 0));
 	if (fo == NULL) {
@@ -934,6 +1096,21 @@ process_reopen_file(struct process *process,
 			"inode is not file");
 		return (GFARM_ERR_OPERATION_NOT_PERMITTED);
 	}
+
+	if (spool_host == NULL) { /* i.e. from_client */
+		if (fo->opener != NULL) {
+			/* already REOPENed */
+			gflog_debug(GFARM_MSG_UNFIXED,
+				"pid %lld, descriptor %d already reopened",
+			(long long)process->pid, fd);
+			return (GFARM_ERR_OPERATION_NOT_PERMITTED);
+		}
+		fo->opener = peer;
+		return (GFARM_ERR_NO_ERROR);
+	}
+
+	/* from gfsd: compare this with oprocess_spool_opened_in_slave() */
+
 	if (fo->u.f.spool_opener != NULL || fo->u.f.spool_host != NULL) {
 		/* already REOPENed */
 		gflog_debug(GFARM_MSG_1001629,
@@ -998,8 +1175,10 @@ process_reopen_file(struct process *process,
 	fo->u.f.spool_opener = peer;
 	fo->u.f.spool_host = spool_host;
 	fo->flag &= ~GFARM_FILE_TRUNC_PENDING; /*spool_host will truncate it*/
-	if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0)
+	if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0) {
 		inode_add_ref_spool_writers(fo->inode);
+		(void)process_propagate_spool_opened(process, fd, fo);
+	}
 	*inump = inode_get_number(fo->inode);
 	*genp = inode_get_gen(fo->inode);
 	*modep = inode_get_mode(fo->inode);
@@ -1067,8 +1246,10 @@ process_getgen(struct process *process, struct peer *peer, int fd,
 	return (GFARM_ERR_NO_ERROR);
 }
 
+/* peer may be NULL for gfmd slaves or after failover */
 static gfarm_error_t
-process_close_or_abort_file(struct process *process, struct peer *peer, int fd,
+process_close_or_abort_file(struct process *process,
+	struct peer *peer, int from_client, int fd,
 	char **trace_logp, int aborted, const char *diag)
 {
 	struct file_opening *fo;
@@ -1085,8 +1266,9 @@ process_close_or_abort_file(struct process *process, struct peer *peer, int fd,
 
 	mode = inode_get_mode(fo->inode);
 
-	if (fo->opener != peer) {
-		if (!process_peer_is_the_spool_opener(process, peer, fd, fo,
+	if (!from_client) {
+		if (peer != NULL &&
+		    !process_peer_is_the_spool_opener(process, peer, fd, fo,
 		    mode, diag))
 			return (GFARM_ERR_OPERATION_NOT_PERMITTED);
 
@@ -1098,19 +1280,30 @@ process_close_or_abort_file(struct process *process, struct peer *peer, int fd,
 				    " without closing write-opened file"
 				    " (pid:%lld fd:%d). inode %llu:%llu"
 				    " might be modified, run gfspooldigest",
+				    peer == NULL ? "<not-opened>" :
 				    peer_get_username(peer),
+				    peer == NULL ? "<not-opened>" :
 				    peer_get_hostname(peer),
 				    (long long)process->pid, (int)fd,
 				    (long long)inode_get_number(fo->inode),
 				    (long long)inode_get_gen(fo->inode));
 			}
-			if (peer_get_pending_new_generation_by_fd(peer)
+			if (peer != NULL &&
+			    peer_get_pending_new_generation_by_fd(peer)
 			    == fd) {
 				peer_unset_pending_new_generation_by_fd(peer,
 				    GFARM_ERR_NO_SUCH_PROCESS);
 			} else {
 				inode_del_ref_spool_writers(fo->inode);
+
+				/* the following must be NOP in slave */
+
 				inode_check_pending_replication(fo);
+
+				if (gfarm_get_metadb_replication_enabled() &&
+				    mdhost_self_is_master())
+					(void)process_propagate_spool_closed(
+					    process, fd);
 			}
 		}
 		if (fo->opener != NULL) {
@@ -1122,24 +1315,49 @@ process_close_or_abort_file(struct process *process, struct peer *peer, int fd,
 			fo->u.f.spool_host = NULL;
 			return (GFARM_ERR_NO_ERROR);
 		}
-	} else {
+
+	} else if (peer != NULL && fo->opener != NULL && fo->opener != peer) {
+		gflog_info(GFARM_MSG_UNFIXED,
+		    "close: client peer %s does not match, %s expected",
+		    peer_get_hostname(peer), peer_get_hostname(fo->opener));
+		return (GFARM_ERR_OPERATION_NOT_PERMITTED);
+	} else { /* from_client */
 		if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0 && aborted) {
 			gflog_info(GFARM_MSG_1005068,
 			    "(%s@%s) aborted without closing a write-opened "
 			    "file %llu:%llu",
-			    peer_get_username(peer), peer_get_hostname(peer),
+			    peer == NULL ? "<not-opened>" :
+			    peer_get_username(peer),
+			    peer == NULL ? "<not-opened>" :
+			    peer_get_hostname(peer),
 			    (unsigned long long)inode_get_number(fo->inode),
 			    (unsigned long long)inode_get_gen(fo->inode));
 		}
 		if (GFARM_S_ISREG(mode) &&
-		    fo->u.f.spool_opener != NULL &&
-		    fo->u.f.spool_opener != peer) {
-			/*
-			 * a client is closing a file,
-			 * but the gfsd is still opening it.
-			 */
-			fo->opener = NULL;
-			return (GFARM_ERR_NO_ERROR);
+		    fo->u.f.spool_opener != NULL) {
+			if (fo->u.f.spool_opener == peer) { /* sanity check */
+				gflog_error(GFARM_MSG_UNFIXED,
+				    "(%s@%s) invalid close "
+				    "pid %lld descriptor %d "
+				    "file %llu:%llu",
+				    peer == NULL ? "<not-opened>" :
+				    peer_get_username(peer),
+				    peer == NULL ? "<not-opened>" :
+				    peer_get_hostname(peer),
+				    (long long)process->pid, fd,
+				    (unsigned long long)
+				    inode_get_number(fo->inode),
+				    (unsigned long long)
+				    inode_get_gen(fo->inode));
+				return (GFARM_ERR_OPERATION_NOT_PERMITTED);
+			} else {
+				/*
+				 * a client is closing a file,
+				 * but the gfsd is still opening it.
+				 */
+				fo->opener = NULL;
+				return (GFARM_ERR_NO_ERROR);
+			}
 		}
 	}
 
@@ -1153,8 +1371,8 @@ gfarm_error_t
 process_close_file(struct process *process, struct peer *peer, int fd,
 	char **trace_logp, const char *diag)
 {
-	return (process_close_or_abort_file(process, peer, fd, trace_logp, 0,
-	    diag));
+	return (process_close_or_abort_file(process,
+	    peer, peer_get_host(peer) == NULL, fd, trace_logp, 0, diag));
 }
 
 gfarm_error_t
@@ -1180,6 +1398,7 @@ process_close_file_read(struct process *process, struct peer *peer, int fd,
 	if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0) {
 		inode_del_ref_spool_writers(fo->inode);
 		inode_check_pending_replication(fo);
+		process_propagate_spool_closed(process, fd);
 	}
 	if (fo->opener != peer && fo->opener != NULL) {
 		/* closing REOPENed file, but the client is still opening */
@@ -1254,6 +1473,7 @@ process_close_file_write(struct process *process, struct peer *peer, int fd,
 	if ((close_mode == INODE_CLOSE_V2_0 &&
 	     !inode_is_updated(fo->inode, mtime))) {
 		inode_del_ref_spool_writers(fo->inode);
+		process_propagate_spool_closed(process, fd);
 	} else if ((fo->flag & GFARM_FILE_CREATE_REPLICA) != 0 &&
 	    inode_add_replica(fo->inode, fo->u.f.spool_host, 1)
 	    != GFARM_ERR_ALREADY_EXISTS) {
@@ -1265,6 +1485,7 @@ process_close_file_write(struct process *process, struct peer *peer, int fd,
 		 * not, do not change the status.
 		 */
 		inode_del_ref_spool_writers(fo->inode);
+		process_propagate_spool_closed(process, fd);
 	} else if (inode_file_update(fo, close_mode, size, atime, mtime,
 	    old_genp, new_genp, trace_logp, diag)) {
 		/*
@@ -1296,6 +1517,131 @@ process_close_file_write(struct process *process, struct peer *peer, int fd,
 		*flagsp = flags;
 
 	return (GFARM_ERR_NO_ERROR);
+}
+
+/* slave gfmd only, called from db_journal_apply.c */
+gfarm_error_t
+process_spool_opened_in_slave(gfarm_pid_t pid, int fd, int open_flags,
+	gfarm_ino_t inum, gfarm_uint64_t igen,
+	char *client_host, int client_port, char *gfsd_host, int gfsd_port,
+	gfarm_uint64_t fd_option)
+{
+	gfarm_error_t e;
+	struct process *process = process_lookup(pid);
+	struct inode *file;
+#if 0
+	gfarm_uint64_t igen_tmp;
+#endif
+	struct file_opening *fo;
+	struct host *spool_host;
+
+	if (process == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "process_spool_opened_in_slave(): "
+		    "process_lookup(%lld) failed", (long long)pid);
+		return (GFARM_ERR_NO_SUCH_PROCESS);
+	}
+
+	file = inode_lookup(inum);
+	if (file == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "process_spool_opened_in_slave(): "
+		    "inode_lookup(%llu) failed",
+		    (unsigned long long)inum);
+		return (GFARM_ERR_NO_SUCH_OBJECT);
+	}
+#if 0 /* this won't match when the file is being updated */
+	if ((igen_tmp = inode_get_number(file)) != igen) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "process_spool_opened_in_slave(): "
+		    "inode %llu:%llu expected, but igen %llu",
+		    (unsigned long long)inum,
+		    (unsigned long long)igen,
+		    (unsigned long long)igen_tmp);
+		return (GFARM_ERR_NO_SUCH_OBJECT);
+	}
+#endif
+
+	spool_host = host_lookup(gfsd_host);
+	if (spool_host == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "process_spool_opened_in_slave(): host_lookup(%s) failed",
+		    gfsd_host);
+		return (GFARM_ERR_UNKNOWN_HOST);
+	}
+
+	e = process_alloc_fd_space(process, fd);
+	if (e != GFARM_ERR_NO_ERROR) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "process_spool_opened_in_slave(): "
+		    "process_alloc_fd_space(): %s", gfarm_error_string(e));
+		return (e);
+	}
+
+	fo = process->filetab[fd];
+	if (fo != NULL) {
+		if (fo->u.f.spool_host == spool_host) {
+			gflog_info(GFARM_MSG_UNFIXED,
+			    "process_spool_opened_in_slave(): "
+			    "called twice with gfsd %s", gfsd_host);
+			return (GFARM_ERR_NO_ERROR);
+		} else {
+			gflog_error(GFARM_MSG_UNFIXED,
+			    "process_spool_opened_in_slave(): "
+			    "duplicate open from gfsd %s vs existing gfsd %s",
+			    gfsd_host, host_name(fo->u.f.spool_host));
+			return (GFARM_ERR_INTERNAL_ERROR);
+		}
+	}
+
+	/*
+	 * currently, slave gfmd just abandons client_host, client_port,
+	 * gfsd_port and fd_option
+	 */
+
+	/*
+	 * compare this with process_reopen_file()
+	 * NOTE: `created' case must be already handled by the master
+	 */
+	fo = file_opening_alloc(file, NULL, spool_host, open_flags);
+	if (fo == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "process_spool_opened_in_slave(): "
+		    "file_opening_alloc() falied");
+		return (GFARM_ERR_NO_MEMORY);
+	}
+
+	e = inode_open_spool(fo);
+	if (e != GFARM_ERR_NO_ERROR) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "process_spool_opened_in_slave(): inode_open() failed: %s",
+		    gfarm_error_string(e));
+		file_opening_free(fo, inode_get_mode(file));
+		return (e);
+	}
+
+	if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0)
+		inode_add_ref_spool_writers(fo->inode);
+	process->filetab[fd] = fo;
+
+	return (GFARM_ERR_NO_ERROR);
+}
+
+/* slave gfmd only, called from db_journal_apply.c */
+gfarm_error_t
+process_spool_closed_in_slave(gfarm_pid_t pid, int fd)
+{
+	struct process *process = process_lookup(pid);
+	static const char diag[] = "GFM_JOURNAL_SPOOL_CLOSED";
+
+	if (process == NULL) {
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "process_spool_closed_in_slave(): "
+		    "process_lookup(%lld) failed", (long long)pid);
+		return (GFARM_ERR_NO_SUCH_PROCESS);
+	}
+	return (process_close_or_abort_file(
+	    process, NULL, 0, fd, NULL, 0, diag));
 }
 
 gfarm_error_t
@@ -2063,12 +2409,13 @@ process_fd_info_record(void *closure, struct gfarm_id_table *idtab,
 			else
 				fdi->client_port = 0;
 		}
-		if (!is_file || fo->u.f.spool_opener == NULL) {
+		if (!is_file || fo->u.f.spool_host == NULL) {
 			fdi->gfsd_host = NULL;
 			fdi->gfsd_peer_port = 0;
 		} else {
 			fdi->gfsd_host = fo->u.f.spool_host;
-			if (peer_get_port(fo->u.f.spool_opener, &port)
+			if (fo->u.f.spool_opener != NULL &&
+			    peer_get_port(fo->u.f.spool_opener, &port)
 			    == GFARM_ERR_NO_ERROR)
 				fdi->gfsd_peer_port = port;
 			else
@@ -2346,4 +2693,18 @@ process_get_path_for_trace_log(struct process *process, struct peer *peer,
 	else
 		*path = strdup(fo->path_for_trace_log);
 	return (GFARM_ERR_NO_ERROR);
+}
+
+void
+process_init(void)
+{
+	/* GFARM_ERR_FUNCTION_NOT_IMPLEMENTED */
+	assert(0);
+}
+
+void
+file_desc_init(void)
+{
+	/* GFARM_ERR_FUNCTION_NOT_IMPLEMENTED */
+	assert(0);
 }

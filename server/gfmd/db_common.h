@@ -40,6 +40,18 @@ struct db_quota_dir_trampoline_closure {
 	void (*callback)(void *, gfarm_ino_t, struct gfarm_dirset_info *);
 };
 
+struct db_process_arg;
+struct db_process_trampoline_closure {
+	void *closure;
+	void (*callback)(void *, struct db_process_arg *);
+};
+
+struct db_file_desc_arg;
+struct db_file_desc_trampoline_closure {
+	void *closure;
+	void (*callback)(void *, struct db_file_desc_arg *);
+};
+
 extern const struct gfarm_base_generic_info_ops
 	db_base_user_auth_arg_ops,
 	db_base_inode_cksum_arg_ops,
@@ -48,7 +60,9 @@ extern const struct gfarm_base_generic_info_ops
 	db_base_direntry_arg_ops,
 	db_base_symlink_arg_ops,
 	db_base_quota_dirset_arg_ops,
-	db_base_quota_dir_arg_ops;
+	db_base_quota_dir_arg_ops,
+	db_base_process_arg_ops,
+	db_base_file_desc_arg_ops;
 
 void db_user_auth_callback_trampoline(void *, void *);
 void db_inode_cksum_callback_trampoline(void *, void *);
@@ -58,6 +72,9 @@ void db_direntry_callback_trampoline(void *, void *);
 void db_symlink_callback_trampoline(void *, void *);
 void db_quota_dirset_callback_trampoline(void *, void *);
 void db_quota_dir_callback_trampoline(void *, void *);
+void db_process_callback_trampoline(void *, void *);
+void db_file_desc_callback_trampoline(void *, void *);
 
 void db_user_auth_arg_free(struct db_user_auth_arg *);
-
+void db_process_arg_free(struct db_process_arg *);
+void db_file_desc_arg_free(struct db_file_desc_arg *);

@@ -1,7 +1,12 @@
+#include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
 #include <unistd.h>
+
+#ifdef TEST
+#include <stdio.h>
+#endif
 
 #include <gfarm/error.h>
 #include <gfarm/gflog.h>
@@ -40,9 +45,10 @@ struct gfarm_id_table {
 
 	size_t entry_size;
 
+	/* NOTE: id_next should point next available id at the hole */
 	int id_base, id_next, id_limit;
 
-	int idx_delta;
+	int idx_realloc_delta;
 	int hole_start, hole_end, idxsize;
 	int head_free, tail_free;
 	struct gfarm_id_index *index;
@@ -78,11 +84,11 @@ gfarm_id_table_alloc(struct gfarm_id_table_entry_ops *entry_ops)
 		idtab->entry_size = ALIGN_CEIL_BY(entry_ops->entry_size,
 		    sizeof(struct gfarm_id_free_data));
 
-	idtab->id_next = 1;
 	idtab->id_base = DEFAULT_ID_BASE;
+	idtab->id_next = idtab->id_base;
 	idtab->id_limit = DEFAULT_ID_LIMIT;
 
-	idtab->idx_delta = INITIAL_DELTA;
+	idtab->idx_realloc_delta = INITIAL_DELTA;
 	idtab->idxsize = idtab->hole_start = idtab->hole_end =
 	    idtab->head_free = idtab->tail_free = 0;
 	idtab->index = NULL;
@@ -137,7 +143,7 @@ gfarm_id_table_set_limit(struct gfarm_id_table *idtab, gfarm_int32_t limit)
 void
 gfarm_id_table_set_initial_size(struct gfarm_id_table *idtab, gfarm_int32_t sz)
 {
-	idtab->idx_delta = sz;
+	idtab->idx_realloc_delta = sz;
 }
 
 void
@@ -160,6 +166,56 @@ gfarm_id_table_foreach(struct gfarm_id_table *idtab, void *closure,
 		}
 	}
 }
+
+#ifdef TEST
+void
+gfarm_id_table_debug_status(struct gfarm_id_table *idtab)
+{
+	if (idtab->hole_start <= 0) {
+		printf("()");
+	} else {
+		printf("(id:%d..id:%d)",
+		    (int)idtab->index[0].id,
+		    (int)idtab->index[idtab->hole_start - 1].id);
+	}
+	printf(":%d (free:%d), id_next:%d, %d:",
+	       idtab->hole_start,
+	       idtab->head_free,
+	       idtab->id_next,
+	       idtab->hole_end);
+	if (idtab->hole_end >= idtab->idxsize) {
+		printf("()");
+	}  else {
+		printf("(id:%d..id:%d)",
+		    (int)idtab->index[idtab->hole_end].id,
+		    (int)idtab->index[idtab->idxsize - 1].id);
+	}
+	printf(":%d (free:%d)\n",
+	       idtab->idxsize,
+	       idtab->tail_free);
+}
+
+void
+gfarm_id_table_debug_dump(struct gfarm_id_table *idtab)
+{
+	int i;
+	void *p;
+
+	for (i = 0; i < idtab->idxsize; i++) {
+		if (i == idtab->hole_start)
+			printf("--- HOLE START ---\n");
+		if (i == idtab->hole_end)
+			printf("--- HOLE END ---\n");
+		printf("%d: %d ", i, idtab->index[i].id);
+		p = idtab->index[i].data;
+		if (p == NULL)
+			printf("()\n");
+		else
+			printf("(%d)\n", *(int *)p);
+	}
+	printf("=== DUMP END ===\n");
+}
+#endif
 
 #if 0
 int
@@ -487,6 +543,8 @@ gfarm_id_adjust_next(struct gfarm_id_table *idtab)
 		gfarm_id_rewind(idtab);
 		return;
 	}
+
+	/* idtab->head_free and idtab->tail_free won't change with this */
 	idtab->id_next = id;
 	i -= idtab->hole_end;
 	memmove(&idtab->index[idtab->hole_start],
@@ -498,6 +556,85 @@ gfarm_id_adjust_next(struct gfarm_id_table *idtab)
 	gfarm_id_shrink_tail(idtab);
 }
 
+/* bool */
+static int
+gfarm_id_table_make_room_force(struct gfarm_id_table *idtab)
+{
+	struct gfarm_id_index *newidx;
+	struct gfarm_id_data_chunk *data;
+	char *p;
+	int i;
+
+	/* assert(idtab->hole_start == idtab->hole_end); */
+	data = malloc(ALIGN_CEIL(sizeof(struct gfarm_id_data_chunk)) +
+	    idtab->idx_realloc_delta * idtab->entry_size);
+	if (data == NULL) {
+		gflog_error(GFARM_MSG_1002408,
+		    "gfarm_id_table_make_room: no memory for %d * %d",
+		    idtab->idx_realloc_delta, (int)idtab->entry_size);
+		return (0); /* false, cannot make room */
+	}
+	newidx = realloc(idtab->index,
+	    (idtab->idxsize + idtab->idx_realloc_delta) *
+	    sizeof(struct gfarm_id_index));
+	if (newidx == NULL) {
+		free(data);
+		gflog_error(GFARM_MSG_1002409,
+		    "gfarm_id_table_make_room: no memory for (%d + %d) * %d",
+		    idtab->idxsize, idtab->idx_realloc_delta,
+		    (int)sizeof(struct gfarm_id_index));
+		return (0); /* false, cannot make room */
+	}
+
+	/* link to idtab->chunk */
+	data->next = idtab->chunks;
+	idtab->chunks = data;
+
+	/* link to idtab->free_data */
+	p = (char *)data +
+	    ALIGN_CEIL(sizeof(struct gfarm_id_data_chunk));
+	for (i = 1; i < idtab->idx_realloc_delta; i++) {
+		((struct gfarm_id_free_data *)p)->next =
+		    (struct gfarm_id_free_data *)(p +
+		    idtab->entry_size);
+		p += idtab->entry_size;
+	}
+	((struct gfarm_id_free_data *)p)->next =
+	    idtab->free_data;
+	idtab->free_data = (struct gfarm_id_free_data *)((char *)data +
+	    ALIGN_CEIL(sizeof(struct gfarm_id_data_chunk)));
+
+	/* idtab->head_free and idtab->tail_free won't change with this */
+
+	/* reconstruct idtab->index */
+	memmove(&newidx[idtab->hole_end + idtab->idx_realloc_delta],
+	    &newidx[idtab->hole_end],
+	    (idtab->idxsize - idtab->hole_end) *
+	    sizeof(struct gfarm_id_index));
+	idtab->index = newidx;
+	idtab->hole_end += idtab->idx_realloc_delta;
+
+	/* make idtab->idx_realloc_delta big enough */
+	idtab->idxsize += idtab->idx_realloc_delta;
+	if ((idtab->idxsize >> DELTA_SHIFT) > idtab->idx_realloc_delta) {
+		idtab->idx_realloc_delta = idtab->idxsize >> DELTA_SHIFT;
+	}
+	return (1); /* true, made room */
+}
+
+/* bool */
+static int
+gfarm_id_table_make_room(struct gfarm_id_table *idtab)
+{
+	if (idtab->hole_start < idtab->hole_end ||
+	    gfarm_id_compaction_from_head(idtab) ||
+	    gfarm_id_compaction_from_tail(idtab))
+		return (1); /* true, already has room */
+
+	/* no space left for the new entry */
+	return (gfarm_id_table_make_room_force(idtab));
+}
+
 void *
 gfarm_id_alloc(struct gfarm_id_table *idtab, gfarm_int32_t *idp)
 {
@@ -507,73 +644,15 @@ gfarm_id_alloc(struct gfarm_id_table *idtab, gfarm_int32_t *idp)
 		/* previous gfarm_id_rewind(idtab) failed, try again */
 		gfarm_id_rewind(idtab);
 		if (idtab->id_next >= idtab->id_limit) {
-			gflog_debug(GFARM_MSG_1002407,
+			gflog_error(GFARM_MSG_1002407,
 			    "gfarm_id_alloc: no more id space %d/%d",
 			    idtab->id_next, idtab->id_limit);
 			return (NULL); /* no more id space */
 		}
 	}
-	if (idtab->hole_start >= idtab->hole_end &&
-	    !gfarm_id_compaction_from_head(idtab) &&
-	    !gfarm_id_compaction_from_tail(idtab)) {
-		/* no space left for the new entry */
-		struct gfarm_id_index *newidx;
-		struct gfarm_id_data_chunk *data;
-		char *p;
-		int i;
-
-		/* assert(idtab->hole_start == idtab->hole_end); */
-		data = malloc(ALIGN_CEIL(sizeof(struct gfarm_id_data_chunk)) +
-		    idtab->idx_delta * idtab->entry_size);
-		if (data == NULL) {
-			gflog_debug(GFARM_MSG_1002408,
-			    "gfarm_id_alloc: no memory for %d * %d",
-			    idtab->idx_delta, (int)idtab->entry_size);
-			return (NULL);
-		}
-		newidx = realloc(idtab->index,
-		    (idtab->idxsize + idtab->idx_delta) *
-		    sizeof(struct gfarm_id_index));
-		if (newidx == NULL) {
-			free(data);
-			gflog_debug(GFARM_MSG_1002409,
-			    "gfarm_id_alloc: no memory for (%d + %d) * %d",
-			    idtab->idxsize, idtab->idx_delta,
-			    (int)sizeof(struct gfarm_id_index));
-			return (NULL); /* no more memory */
-		}
-
-		/* link to idtab->chunk */
-		data->next = idtab->chunks;
-		idtab->chunks = data;
-
-		/* link to idtab->free_data */
-		p = (char *)data +
-		    ALIGN_CEIL(sizeof(struct gfarm_id_data_chunk));
-		for (i = 1; i < idtab->idx_delta; i++) {
-			((struct gfarm_id_free_data *)p)->next =
-			    (struct gfarm_id_free_data *)(p +
-			    idtab->entry_size);
-			p += idtab->entry_size;
-		}
-		((struct gfarm_id_free_data *)p)->next =
-		    idtab->free_data;
-		idtab->free_data = (struct gfarm_id_free_data *)((char *)data +
-		    ALIGN_CEIL(sizeof(struct gfarm_id_data_chunk)));
-
-		/* reconstruct idtab->index */
-		memmove(&newidx[idtab->hole_end + idtab->idx_delta],
-		    &newidx[idtab->hole_end],
-		    (idtab->idxsize - idtab->hole_end) *
-		    sizeof(struct gfarm_id_index));
-		idtab->index = newidx;
-		idtab->hole_end += idtab->idx_delta;
-
-		/* make idtab->idx_delta big enough */
-		idtab->idxsize += idtab->idx_delta;
-		if ((idtab->idxsize >> DELTA_SHIFT) > idtab->idx_delta) {
-			idtab->idx_delta = idtab->idxsize >> DELTA_SHIFT;
-		}
+	if (!gfarm_id_table_make_room(idtab)) {
+		/* gfarm_id_table_make_room() already called gflog_error() */
+		return (NULL); /* no memory */
 	}
 
 	entry = idtab->index + idtab->hole_start++;
@@ -585,6 +664,192 @@ gfarm_id_alloc(struct gfarm_id_table *idtab, gfarm_int32_t *idp)
 
 	*idp = entry->id;
 	return (entry->data);
+}
+
+void *
+gfarm_id_enter(struct gfarm_id_table *idtab, gfarm_int32_t target_id)
+{
+	struct gfarm_id_index *entry;
+	int i, j, n, n_free;
+	gfarm_int32_t allocated_id;
+	void *rv;
+
+	/* target_id is found in the area before the hole ? */
+	if (idtab->hole_start > 0 &&
+	    idtab->index[idtab->hole_start - 1].id >= target_id) {
+		/* target_id is available before the hole */
+		i = gfarm_id_bsearch_next(idtab,
+		    0, idtab->hole_start, target_id);
+		assert(i < idtab->hole_start);
+
+		if (idtab->index[i].id == target_id) {
+			entry = &idtab->index[i];
+			if (entry->data != NULL) {
+				/* shouldn't happen. temporary debugging log */
+				gflog_error(GFARM_MSG_UNFIXED,
+				    "gfarm_id_enter: duplicate id %d",
+				    (int)target_id);
+				return (NULL);
+			}
+			--idtab->head_free;
+			assert(idtab->free_data != NULL);
+			entry->data = idtab->free_data;
+			idtab->free_data = idtab->free_data->next;
+			return (entry->data);
+		}
+		assert(idtab->index[i].id > target_id);
+
+		/*
+		 * need to make room, move the hole here.
+		 * We assume that gfarm_id_enter() is usually
+		 * called with an id near the hole.
+		 */
+		n = idtab->hole_start - i;
+		/* assert(n > 0); */
+		if (idtab->hole_start >= idtab->hole_end) {
+			/*
+			 * if we don't call gfarm_id_table_make_room_force(),
+			 * gfarm_id_alloc() below will call it,
+			 * but idtab->id_next will not point the hole
+			 * in that case.
+			 */
+			if (!gfarm_id_compaction_from_head(idtab) &&
+			    !gfarm_id_compaction_from_tail(idtab) &&
+			    !gfarm_id_table_make_room_force(idtab)) {
+				/*
+				 * gfarm_id_table_make_room_force() already
+				 * called gflog_error()
+				 */
+				return (NULL); /* no memory */
+			}
+			/* i should be updated, if compaction happens */
+			i = gfarm_id_bsearch_next(idtab,
+			    0, idtab->hole_start, target_id);
+			assert(i < idtab->hole_start);
+			n = idtab->hole_start - i;
+			/* assert(n > 0); */
+		} else {
+			/* XXX or, do compaction here too? */
+		}
+		n_free = 0;
+		for (j = i; j < idtab->hole_start; j++) {
+			if (idtab->index[j].data == NULL)
+				++n_free;
+		}
+		memmove(&idtab->index[idtab->hole_end - n],
+		    &idtab->index[i],
+		    n * sizeof(struct gfarm_id_index));
+		idtab->hole_start -= n;
+		idtab->hole_end -= n;
+		idtab->head_free -= n_free;
+		idtab->tail_free += n_free;
+
+		idtab->id_next = target_id;
+		rv = gfarm_id_alloc(idtab, &allocated_id);
+		if (rv != NULL) {
+			assert(allocated_id == target_id);
+		}
+		return (rv);
+	}
+
+	/* target_id is found in the area after the hole ? */
+	if (idtab->hole_end < idtab->idxsize &&
+	    idtab->index[idtab->hole_end].id <= target_id) {
+		/* target_id is available after the hole */
+		i = gfarm_id_bsearch_next(idtab,
+		    idtab->hole_end, idtab->idxsize, target_id);
+		if (i < idtab->idxsize &&
+		    idtab->index[i].id == target_id) {
+			entry = &idtab->index[i];
+			if (entry->data != NULL) {
+				/* shouldn't happen. temporary debugging log */
+				gflog_error(GFARM_MSG_UNFIXED,
+				    "gfarm_id_enter: duplicate id %d",
+				    (int)target_id);
+				return (NULL);
+			}
+			--idtab->tail_free;
+			assert(idtab->free_data != NULL);
+			entry->data = idtab->free_data;
+			idtab->free_data = idtab->free_data->next;
+			return (entry->data);
+				
+		}
+		if (i < idtab->idxsize) {
+			assert(idtab->index[i].id > target_id);
+		}
+
+		/*
+		 * need to make room, move the hole here.
+		 * We assume that gfarm_id_enter() is usually
+		 * called with an id near the hole.
+		 */
+		n = i - idtab->hole_end;
+		/* assert(n > 0); */
+		if (idtab->hole_start >= idtab->hole_end) {
+			/*
+			 * NOTE:
+			 * this case won't happen, because target_id will
+			 * be found in the area before the hole.
+			 * but we leave this code just for symmetry.
+			 */
+			/*
+			 * if we don't call gfarm_id_table_make_room_force(),
+			 * gfarm_id_alloc() below will call it,
+			 * but idtab->id_next will not point the hole
+			 * in that case.
+			 */
+			if (!gfarm_id_compaction_from_tail(idtab) &&
+			    !gfarm_id_compaction_from_head(idtab) &&
+			    !gfarm_id_table_make_room_force(idtab)) {
+				/*
+				 * gfarm_id_table_make_room_force() already
+				 * called gflog_error()
+				 */
+				return (NULL); /* no memory */
+			}
+			if (idtab->hole_end >= idtab->idxsize) {
+				/*
+				 * the code below won't work in this case,
+				 * but this won't happen anyway.
+				 * see the preceding NOTE.
+				 */
+				assert(0);
+			}
+			/* i should be updated */
+			i = gfarm_id_bsearch_next(idtab,
+			    idtab->hole_end, idtab->idxsize, target_id);
+			n = i - idtab->hole_end;
+		} else {
+			/* XXX or, do compaction here too? */
+		}
+		n_free = 0;
+		for (j = idtab->hole_end; j < i; j++) {
+			if (idtab->index[j].data == NULL)
+				++n_free;
+		}
+		memmove(&idtab->index[idtab->hole_start],
+		    &idtab->index[idtab->hole_end],
+		    n * sizeof(struct gfarm_id_index));
+		idtab->hole_start += n;
+		idtab->hole_end += n;
+		idtab->head_free += n_free;
+		idtab->tail_free -= n_free;
+		idtab->id_next = target_id;
+		rv = gfarm_id_alloc(idtab, &allocated_id);
+		if (rv != NULL) {
+			assert(allocated_id == target_id);
+		}
+		return (rv);
+	}
+
+	/* target_id is available in the hole */
+	idtab->id_next = target_id;
+	rv = gfarm_id_alloc(idtab, &allocated_id);
+	if (rv != NULL) {
+		assert(allocated_id == target_id);
+	}
+	return (rv);
 }
 
 void *
@@ -645,16 +910,24 @@ gfarm_id_free(struct gfarm_id_table *idtab, gfarm_int32_t id)
 }
 
 #ifdef TEST
-#include <stdio.h>
+void
+free_test(void *closure, gfarm_int32_t id, void *p)
+{
+	printf("free id:%d (%d)\n", id, *(int *)p);
+}
 
+int
 main()
 {
 	int len;
 	char buffer[1024], command[sizeof(buffer)];
 	struct gfarm_id_table *id_table = NULL;
-	struct gfarm_id_table_entry_ops ops = { 256 };
+	struct gfarm_id_table_entry_ops ops = { sizeof(int) };
 	gfarm_int32_t n;
 	void *p;
+
+	/* output stdout and stderr in chronological order */
+	setvbuf(stdout, NULL, _IOLBF, 0);
 
 	while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
 		len = strlen(buffer);
@@ -662,7 +935,9 @@ main()
 			buffer[len - 1] = '\0';
 		if (sscanf(buffer, "%s", command) != 1)
 			continue;
-		if (strcmp(command, "table_alloc") == 0) {
+		if (strcmp(command, "#") ==0) {
+			/* comment command */
+		} else if (strcmp(command, "table_alloc") == 0) {
 			if (id_table != NULL) {
 				fprintf(stderr, "table already alloced\n");
 			} else {
@@ -671,7 +946,7 @@ main()
 					fprintf(stderr, "table alloc failed\n");
 			}
 		} else if (strcmp(command, "table_free") == 0) {
-			gfarm_id_table_free(id_table);
+			gfarm_id_table_free(id_table, free_test, NULL);
 		} else if (strcmp(command, "base") == 0) {
 			if (sscanf(buffer, "%*s %d", &n) != 1) {
 				fprintf(stderr, "Usage: base <base>\n");
@@ -684,20 +959,43 @@ main()
 			} else {
 				gfarm_id_table_set_limit(id_table, n);
 			}
-		} else if (strcmp(command, "alloc") == 0) {
+		} else if (strcmp(command, "status") == 0 ||
+		    strcmp(command, "s") == 0) {
+			gfarm_id_table_debug_status(id_table);
+		} else if (strcmp(command, "dump") == 0 ||
+		    strcmp(command, "d") == 0) {
+			gfarm_id_table_debug_dump(id_table);
+		} else if (strcmp(command, "alloc") == 0 ||
+		    strcmp(command, "a") == 0) {
 			if ((p = gfarm_id_alloc(id_table, &n)) == NULL)
 				fprintf(stderr, "alloc failed\n");
-			else
-				printf("alloced id=%d, p=%p\n", n, p);
-		} else if (strcmp(command, "lookup") == 0) {
+			else {
+				printf("alloced id=%d\n", n);
+				*(int *)p = n;
+			}			
+		} else if (strcmp(command, "lookup") == 0 ||
+		    strcmp(command, "l") == 0) {
 			if (sscanf(buffer, "%*s %d", &n) != 1) {
 				fprintf(stderr, "Usage: lookup <id>\n");
-			} else if ((p = gfarm_id_lookup(id_table, n)) == NULL) {
+			} else if ((p = gfarm_id_lookup(id_table, n))
+			    == NULL) {
 				fprintf(stderr, "lookup %d failed\n", n);
 			} else {
-				printf("found id=%d, p=%p\n", n, p);
+				printf("found id=%d, d=%d\n",
+				    n, *(int *)p);
 			}
-		} else if (strcmp(command, "free") == 0) {
+		} else if (strcmp(command, "enter") == 0 ||
+		    strcmp(command, "e") == 0) {
+			if (sscanf(buffer, "%*s %d", &n) != 1) {
+				fprintf(stderr, "Usage: enter <id>\n");
+			} else if ((p = gfarm_id_enter(id_table, n)) == NULL) {
+				fprintf(stderr, "enter %d failed\n", n);
+			} else {
+				printf("enter id=%d\n", n);
+				*(int *)p = n;
+			}
+		} else if (strcmp(command, "free") == 0 ||
+		    strcmp(command, "f") == 0) {
 			if (sscanf(buffer, "%*s %d", &n) != 1) {
 				fprintf(stderr, "Usage: free <id>\n");
 			} else if (!gfarm_id_free(id_table, n)) {
@@ -709,5 +1007,6 @@ main()
 			fprintf(stderr, "Unknown command %s\n", command);
 		}
 	}
+	return 0;
 }
-#endif
+#endif /* TEST */
