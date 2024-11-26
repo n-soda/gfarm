@@ -3434,34 +3434,50 @@ static gfarm_error_t
 gfarm_ldap_process_alloc(gfarm_uint64_t seqnum,
 	struct db_process_arg *arg)
 {
-	/* on-memory only */
+	/* XXX not implemented yet */
 	free(arg);
-	return (GFARM_ERR_NO_ERROR);
+	return (GFARM_ERR_FUNCTION_NOT_IMPLEMENTED);
 }
 
 static gfarm_error_t
 gfarm_ldap_process_free(gfarm_uint64_t seqnum, struct db_process_pkey_arg *arg)
 {
-	/* on-memory only */
+	/* XXX not implemented yet */
 	free(arg);
-	return (GFARM_ERR_NO_ERROR);
+	return (GFARM_ERR_FUNCTION_NOT_IMPLEMENTED);
+}
+
+static gfarm_error_t
+gfarm_ldap_process_load(void *closure,
+	void (*callback)(void *, struct db_process_arg *))
+{
+	/* XXX not implemented yet */
+	return (GFARM_ERR_FUNCTION_NOT_IMPLEMENTED);
 }
 
 static gfarm_error_t
 gfarm_ldap_spool_opened(gfarm_uint64_t seqnum, struct db_file_desc_arg *arg)
 {
-	/* on-memory only */
+	/* XXX not implemented yet */
 	free(arg);
-	return (GFARM_ERR_NO_ERROR);
+	return (GFARM_ERR_FUNCTION_NOT_IMPLEMENTED);
 }
 
 static gfarm_error_t
 gfarm_ldap_spool_closed(gfarm_uint64_t seqnum,
 	struct db_file_desc_pkey_arg *arg)
 {
-	/* on-memory only */
+	/* XXX not implemented yet */
 	free(arg);
-	return (GFARM_ERR_NO_ERROR);
+	return (GFARM_ERR_FUNCTION_NOT_IMPLEMENTED);
+}
+
+static gfarm_error_t
+gfarm_ldap_file_desc_load(void *closure,
+	void (*callback)(void *, struct db_file_desc_arg *))
+{
+	/* XXX not implemented yet */
+	return (GFARM_ERR_FUNCTION_NOT_IMPLEMENTED);
 }
 
 /**********************************************************************/

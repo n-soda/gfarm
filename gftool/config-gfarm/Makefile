@@ -40,6 +40,8 @@ DATA =	$(srcdir)/config-gfarm.common \
 	$(srcdir)/initial.ldif.in \
 	$(srcdir)/bdb.DB_CONFIG.in
 
+CONFIG_CHANGE = ../../config.log
+
 include $(top_srcdir)/makes/script.mk
 include $(top_srcdir)/makes/data.mk
 include $(top_srcdir)/makes/subdir.mk

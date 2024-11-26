@@ -9,10 +9,7 @@
 #include <time.h>
 
 #define GFARM_INTERNAL_USE
-#include <gfarm/gflog.h>
-#include <gfarm/error.h>
-#include <gfarm/gfarm_misc.h>
-#include <gfarm/gfs.h>
+#include <gfarm/gfarm.h>
 
 #include "gfutil.h"
 #include "id_table.h"
@@ -22,11 +19,17 @@
 #include "gfm_proto.h"
 #include "gfs_proto.h"
 #include "timespec.h"
+#include "quota_info.h"
+#include "metadb_common.h"
+#include "metadb_server.h"
 #include "config.h"
 
 #include "subr.h"
 #include "rpcsubr.h"
+#include "quota.h"
 #include "db_access.h"
+#include "db_ops.h"
+#include "db_common.h"
 #include "peer.h"
 #include "user.h"
 #include "inode.h"
@@ -343,12 +346,20 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 
 /* slave gfmd only, called from db_journal_apply.c */
 gfarm_error_t
-process_enter_in_slave(gfarm_pid_t pid, struct user *user,
+process_enter_in_slave(gfarm_pid_t pid, char *username,
 	int key_type, size_t key_len, char *shared_key)
 {
 	gfarm_error_t e;
+	struct user *user;
 	struct process *process;
 
+	if ((user = user_tenant_lookup(username)) == NULL) {
+		e = GFARM_ERR_NO_SUCH_USER;
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "process_enter_in_slave: pid=%lld user=%s : %s",
+		    (long long)pid, username, gfarm_error_string(e));
+		return (e);
+	}
 	e = process_alloc0(user, key_type, key_len, shared_key, 0,
 	    &pid, &process);
 	if (e != GFARM_ERR_NO_ERROR) {
@@ -2696,15 +2707,63 @@ process_get_path_for_trace_log(struct process *process, struct peer *peer,
 }
 
 void
+process_add_one(void *closure, struct db_process_arg *arg)
+{
+	gfarm_error_t e;
+
+	if ((e = process_enter_in_slave(arg->pid, arg->username,
+	    arg->key_type, arg->key_len, arg->shared_key))
+	    != GFARM_ERR_NO_ERROR) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "process_add_one: pid=%lld user=%s : %s",
+		   (long long)arg->pid, arg->username, gfarm_error_string(e));
+	}
+	db_process_arg_free(arg);
+}
+
+void
 process_init(void)
 {
-	/* GFARM_ERR_FUNCTION_NOT_IMPLEMENTED */
-	assert(0);
+	gfarm_error_t e;
+
+	e = db_process_load(NULL, process_add_one);
+	if (e != GFARM_ERR_NO_ERROR)
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "loading processes: %s", gfarm_error_string(e));
+}
+
+void
+file_desc_add_one(void *closure, struct db_file_desc_arg *arg)
+{
+	gfarm_error_t e;
+
+	if ((e = process_spool_opened_in_slave(
+	    arg->pid, arg->fd, arg->open_flags,
+	    arg->inum, arg->igen, arg->client_host, arg->client_port,
+	    arg->gfsd_host, arg->gfsd_port, arg->fd_option))
+	    != GFARM_ERR_NO_ERROR) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "file_desc_add_one: pid=%lli fd=%d open_flags=0x%x "
+		    "inum=%lld igen=%lld "
+		    "client=%s client_port=%d gfsd=%s gfsd_port=%d "
+		    "fd_option=0x%llx : %s",
+		    (long long)arg->pid, arg->fd, arg->open_flags,
+		    (long long)arg->inum, (long long)arg->igen,
+		    arg->client_host, arg->client_port,
+		    arg->gfsd_host, arg->gfsd_port,
+		    (long long)arg->fd_option,
+		    gfarm_error_string(e));
+	}
+	db_file_desc_arg_free(arg);
 }
 
 void
 file_desc_init(void)
 {
-	/* GFARM_ERR_FUNCTION_NOT_IMPLEMENTED */
-	assert(0);
+	gfarm_error_t e;
+
+	e = db_file_desc_load(NULL, file_desc_add_one);
+	if (e != GFARM_ERR_NO_ERROR)
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "loading file descriptors: %s", gfarm_error_string(e));
 }

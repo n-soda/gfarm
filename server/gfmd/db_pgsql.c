@@ -1206,6 +1206,34 @@ get_string_from_copy_binary(const char **bufp, int *residualp)
 	return (p);
 }
 
+static char *
+get_bytea_from_copy_binary(const char **bufp, int *residualp, size_t *lenp)
+{
+	int32_t len;
+	char *p;
+
+	COPY_INT32(len, *bufp, *residualp, "metdb_pgsql: copy bytea");
+	if (len == -1) /* NULL field */
+		return (NULL);
+	if (len < 0) /* We don't allow that long varchar */
+		gflog_fatal(GFARM_MSG_UNFIXED,
+		    "metadb_pgsql: copy bytea length=%d", len);
+
+	if (len > *residualp)
+		gflog_fatal(GFARM_MSG_UNFIXED,
+		    "metadb_pgsql: copy bytea %d > %d",
+		    len, *residualp);
+	GFARM_MALLOC_ARRAY(p, len);
+	if (p == NULL)
+		gflog_fatal(GFARM_MSG_UNFIXED,
+		    "metadb_pgsql: copy bytea length=%d", len);
+	memcpy(p, *bufp, len);
+	*bufp += len;
+	*residualp -= len;
+	*lenp = len;
+	return (p);
+}
+
 static uint32_t
 get_int32_from_copy_binary(const char **bufp, int *residualp)
 {
@@ -4429,15 +4457,15 @@ gfarm_pgsql_process_alloc(gfarm_uint64_t seqnum,
 	char keyType[GFARM_INT32STRLEN + 1];
 
 	snprintf(pid, sizeof pid, "%" GFARM_PRId64, arg->pid);
-	snprintf(keyType, sizeof keyType, "%d", arg->keyType);
+	snprintf(keyType, sizeof keyType, "%d", arg->key_type);
 	paramValues[0] = pid;
 	paramValues[1] = arg->username;
 	paramValues[2] = keyType;
 	paramValues[3] = arg->shared_key;
-	paramLength[0] = strlen(paramValues[0]);
-	paramLength[1] = strlen(paramValues[1]);
-	paramLength[2] = strlen(paramValues[2]);
-	paramLength[3] = arg->key_len;
+	paramLengths[0] = strlen(paramValues[0]);
+	paramLengths[1] = strlen(paramValues[1]);
+	paramLengths[2] = strlen(paramValues[2]);
+	paramLengths[3] = arg->key_len;
 	paramFormats[0] = 0; /* as text */
 	paramFormats[1] = 0; /* as text */
 	paramFormats[2] = 0; /* as text */
@@ -4487,22 +4515,21 @@ static void
 process_set_fields_from_copy_binary(
 	const char *buf, int residual, void *vinfo)
 {
-#if 1
-	/* GFARM_ERR_FUNCTION_NOT_IMPLEMENTED */
-	assert(0);
-#else
 	struct db_process_arg *info = vinfo;
 	uint16_t num_fields;
 
 	COPY_BINARY(num_fields, buf, residual,
-	    "pgsql_user_auth_dir_load: field number");
+	    "pgsql_process_load: field number");
 	num_fields = ntohs(num_fields);
-	if (num_fields < 10) /* allow fields addition in future */
+	if (num_fields < 4) /* allow fields addition in future */
 		gflog_fatal(GFARM_MSG_UNFIXED,
 		    "pgsql_procss_load: fields = %d", num_fields);
 
-	XXX
-#endif
+	info->pid = get_int64_from_copy_binary(&buf, &residual);
+	info->username = get_string_from_copy_binary(&buf, &residual);
+	info->key_type = get_int32_from_copy_binary(&buf, &residual);
+	info->shared_key = get_bytea_from_copy_binary(&buf, &residual,
+	    &info->key_len);
 }
 
 static gfarm_error_t
@@ -4533,7 +4560,7 @@ gfarm_pgsql_spool_opened(gfarm_uint64_t seqnum,
 	const char *paramValues[10];
 	char pid[GFARM_INT64STRLEN + 1];
 	char fd[GFARM_INT32STRLEN + 1];
-	char open_flags[GFARM_INT32STRLEN + 1];
+	char open_flags[GFARM_INT64STRLEN + 1];
 	char inum[GFARM_INT64STRLEN + 1];
 	char igen[GFARM_INT64STRLEN + 1];
 	char client_port[GFARM_INT32STRLEN + 1];
@@ -4542,7 +4569,8 @@ gfarm_pgsql_spool_opened(gfarm_uint64_t seqnum,
 
 	snprintf(pid, sizeof pid, "%" GFARM_PRId64, arg->pid);
 	snprintf(fd, sizeof fd, "%d", arg->fd);
-	snprintf(open_flags, sizeof open_flags, "%d", arg->open_flags);
+	snprintf(open_flags, sizeof open_flags, "%" GFARM_PRId64,
+	    (gfarm_int64_t)arg->open_flags);
 	snprintf(inum, sizeof inum, "%" GFARM_PRId64, arg->inum);
 	snprintf(igen, sizeof igen, "%" GFARM_PRId64, arg->igen);
 	snprintf(client_port, sizeof client_port, "%d", arg->client_port);
@@ -4552,7 +4580,7 @@ gfarm_pgsql_spool_opened(gfarm_uint64_t seqnum,
 	paramValues[0] = pid;
 	paramValues[1] = fd;
 	paramValues[2] = open_flags;
-	paramValues[3] = inumber;
+	paramValues[3] = inum;
 	paramValues[4] = igen;
 	paramValues[5] = arg->client_host;
 	paramValues[6] = client_port;
@@ -4584,6 +4612,7 @@ gfarm_pgsql_spool_closed(gfarm_uint64_t seqnum,
 	gfarm_error_t e;
 	const char *paramValues[2];
 	char pid[GFARM_INT64STRLEN + 1];
+	char fd[GFARM_INT32STRLEN + 1];
 
 	snprintf(pid, sizeof pid, "%" GFARM_PRId64, arg->pid);
 	snprintf(fd, sizeof fd, "%d", arg->fd);
@@ -4608,8 +4637,28 @@ static void
 file_desc_set_fields_from_copy_binary(
 	const char *buf, int residual, void *vinfo)
 {
-	/* GFARM_ERR_FUNCTION_NOT_IMPLEMENTED */
-	assert(0);
+	struct db_file_desc_arg *info = vinfo;
+	uint16_t num_fields;
+	gfarm_int64_t open_flags_tmp;
+
+	COPY_BINARY(num_fields, buf, residual,
+	    "pgsql_file_desc_load: field number");
+	num_fields = ntohs(num_fields);
+	if (num_fields < 10) /* allow fields addition in future */
+		gflog_fatal(GFARM_MSG_UNFIXED,
+		    "pgsql_file_desc_load: fields = %d", num_fields);
+
+	info->pid = get_int64_from_copy_binary(&buf, &residual);
+	info->fd = get_int32_from_copy_binary(&buf, &residual);
+	open_flags_tmp = get_int64_from_copy_binary(&buf, &residual);
+	info->open_flags = open_flags_tmp; /* int64 -> int32 conversion */
+	info->inum = get_int64_from_copy_binary(&buf, &residual);
+	info->igen = get_int64_from_copy_binary(&buf, &residual);
+	info->client_host = get_string_from_copy_binary(&buf, &residual);
+	info->client_port = get_int32_from_copy_binary(&buf, &residual);
+	info->gfsd_host = get_string_from_copy_binary(&buf, &residual);
+	info->gfsd_port = get_int32_from_copy_binary(&buf, &residual);
+	info->fd_option = get_int64_from_copy_binary(&buf, &residual);
 }
 
 static gfarm_error_t
@@ -4749,5 +4798,5 @@ const struct db_ops db_pgsql_ops = {
 
 	gfarm_pgsql_spool_opened,
 	gfarm_pgsql_spool_closed,
-	gfarm_pgsql_file_desc_closed,
+	gfarm_pgsql_file_desc_load,
 };

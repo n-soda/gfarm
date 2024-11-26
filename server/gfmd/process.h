@@ -10,7 +10,7 @@ struct process *process_lookup(gfarm_pid_t);
 enum inode_close_mode;
 
 gfarm_error_t process_enter_in_slave(
-	gfarm_pid_t, struct user *, int, size_t, char *);
+	gfarm_pid_t, char *, int, size_t, char *);
 gfarm_error_t process_free_in_slave(gfarm_pid_t);
 
 gfarm_error_t process_new_generation_wait(struct peer *, int,

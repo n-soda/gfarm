@@ -989,17 +989,9 @@ db_journal_apply_process_alloc(gfarm_uint64_t seqnum,
 	struct db_process_arg *arg)
 {
 	gfarm_error_t e;
-	struct user *u;
 
 gflog_info(GFARM_MSG_UNFIXED, "apply process_alloc pid %lld user %s", (long long)arg->pid, arg->username);
-	if ((u = user_tenant_lookup(arg->username)) == NULL) {
-		e = GFARM_ERR_NO_SUCH_USER;
-		gflog_error(GFARM_MSG_UNFIXED,
-		    "process_enter: seqnum=%lli pid=%lld user=%s : %s",
-		    (unsigned long long)seqnum, (long long)arg->pid,
-		    arg->username,
-		    gfarm_error_string(e));
-	} else if ((e = process_enter_in_slave(arg->pid, u,
+	if ((e = process_enter_in_slave(arg->pid, arg->username,
 	    arg->key_type, arg->key_len, arg->shared_key))
 	    != GFARM_ERR_NO_ERROR) {
 		gflog_error(GFARM_MSG_UNFIXED,
