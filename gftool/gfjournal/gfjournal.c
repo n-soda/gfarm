@@ -507,6 +507,33 @@ print_obj(enum journal_operation ope, void *obj)
 		    m->username, m->auth_id_type);
 		break;
 	}
+	case GFM_JOURNAL_PROCESS_ALLOC: {
+		struct db_process_arg *m = obj;
+		printf("pid=%lld;user=%s;key_type=%d;key_len=%zd",
+		    (long long)m->pid, m->username, m->key_type, m->key_len);
+		break;
+	}
+	case GFM_JOURNAL_PROCESS_FREE: {
+		struct db_process_pkey_arg *m = obj;
+		printf("pid=%lld", (long long)m->pid);
+		break;
+	}
+	case GFM_JOURNAL_SPOOL_OPENED: {
+		struct db_file_desc_arg *m = obj;
+		printf("pid=%lld;fd=%d;open_flags=0x%x;ino=%llu;igen=%llu;"
+		    "client_host=%s;client_port=%d;gfsd_host=%s;gfsd_port=%d;"
+		    "fd_option=0x%llx",
+		    (long long)m->pid, m->fd, m->open_flags,
+		    (long long)m->inum, (long long)m->igen,
+		    m->client_host, m->client_port, m->gfsd_host, m->gfsd_port,
+		    (long long)m->fd_option);
+		break;
+	}
+	case GFM_JOURNAL_SPOOL_CLOSED: {
+		struct db_file_desc_pkey_arg *m = obj;
+		printf("pid=%lld;fd=%d", (long long)m->pid, m->fd);
+		break;
+	}
 	default:
 		break;
 	}

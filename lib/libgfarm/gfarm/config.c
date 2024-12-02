@@ -5429,7 +5429,26 @@ gfm_client_config_get_vars_result(struct gfm_connection *gfm_server,
 	return (e_save);
 }
 
+static pthread_mutex_t config_get_var_mutex = PTHREAD_MUTEX_INITIALIZER;
+static const char config_get_var_mutex_label[] = "config_get_var";
 
+void
+gfm_client_lock_config_get_var(void)
+{
+	static const char diag[] = "gfm_client_lock_config_get_var";
+
+	gfarm_mutex_lock(&config_get_var_mutex, diag,
+	    config_get_var_mutex_label);
+}
+
+void
+gfm_client_unlock_config_get_var(void)
+{
+	static const char diag[] = "gfm_client_unlock_config_get_var";
+
+	gfarm_mutex_unlock(&config_get_var_mutex, diag,
+	    config_get_var_mutex_label);
+}
 
 gfarm_error_t
 gfarm_sockbuf_apply_limit(int sock, int opt, int limit, const char *optname)

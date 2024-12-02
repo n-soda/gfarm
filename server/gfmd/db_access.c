@@ -2361,7 +2361,6 @@ db_process_alloc(gfarm_pid_t pid, char *user,
 		return (GFARM_ERR_NO_MEMORY);
 	}
 gflog_info(GFARM_MSG_UNFIXED, "db_process_alloc pid %lld user %s", (long long)pid, user);
-gflog_info(GFARM_MSG_UNFIXED, "db_process_alloc_arg pid %lld user %s", (long long)arg->pid, arg->username);
 	return (db_enter_sn((dbq_entry_func_t)ops->process_alloc, arg));
 }
 
@@ -2446,6 +2445,7 @@ db_spool_opened(gfarm_pid_t pid, int fd, int open_flags,
 		    "db_file_desc_arg_alloc failed");
 		return (GFARM_ERR_NO_MEMORY);
 	}
+gflog_info(GFARM_MSG_UNFIXED, "db_spool_opened pid %lld fd %d spool %s", (long long)pid, fd, gfsd_host);
 	return (db_enter_sn((dbq_entry_func_t)ops->spool_opened, arg));
 }
 

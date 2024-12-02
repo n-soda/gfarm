@@ -239,6 +239,7 @@ process_alloc0(struct user *user,
 	process->tenant = user_get_tenant(user);
 	process->root_inum = inode_get_number(root_inode);
 	process->root_igen = inode_get_gen(root_inode);
+	process->flags = 0;
 
 	*processp = process;
 	*pidp = pid32;
@@ -2462,7 +2463,6 @@ process_fd_info_lookup_user(char *username,
 	return (GFARM_ERR_NO_ERROR);
 }
 
-
 gfarm_error_t
 gfm_server_process_fd_info(struct peer *peer, int from_client, int skip)
 {
@@ -2590,6 +2590,151 @@ gfm_server_process_fd_info(struct peer *peer, int from_client, int skip)
 	free(gfsd_domain);
 	free(user_host_domain);
 	free(proc_username);
+	return (gfm_server_put_reply(peer, diag, e, ""));
+}
+
+
+static int
+process_fd_remove_one(struct process *target_process, int fd, struct host *spool_host)
+{
+	struct file_opening *fo = target_process->filetab[fd];
+
+	if (fo == NULL)
+		return (0);
+	if (!inode_is_file(fo->inode))
+		return (0);
+	if (fo->u.f.spool_opener != NULL) /* gfsd still connected */
+		return (0);
+	
+	if (process_close_or_abort_file(target_process, NULL, 0, fd, NULL, 1,
+	    "GFM_PROTO_PROCESS_FD_REMOVE") != GFARM_ERR_NO_ERROR)
+		return (0);
+
+	return (1);
+}
+
+static int
+process_fd_remove(struct process *target_process, int fd, struct host *spool_host)
+{
+	if (fd != -1) {
+		if (fd < 0 || fd >= target_process->nfiles)
+			return (0);
+		return (process_fd_remove_one(target_process, fd, spool_host));
+	} else {
+		int n = 0;
+
+		for (fd = 0; fd < target_process->nfiles; fd++)
+			n +=  process_fd_remove_one(target_process, fd, spool_host);
+		return (n);
+	}
+}
+
+struct process_fd_remove_closure {
+	gfarm_int32_t fd;
+	struct host *spool_host;
+
+	gfarm_int32_t n_processes;
+};
+
+static void
+process_fd_remove_callback(void *closure, struct gfarm_id_table *idtab,
+	gfarm_int32_t pid, void *proc)
+{
+	struct process_fd_remove_closure *c = closure;
+	struct process *target_process = process_lookup(pid);
+
+	if (target_process == NULL) {
+		gflog_notice(GFARM_MSG_UNFIXED,
+		    "process_fd_remove_callback(): pid %lld not found (shouldn't happen",
+		    (long long)pid);
+		return;
+	}
+	c->n_processes += process_fd_remove(target_process, c->fd, c->spool_host);
+}
+
+gfarm_error_t
+gfm_server_process_fd_remove(struct peer *peer, int from_client, int skip)
+{
+	gfarm_error_t e;
+	struct user *user = peer_get_user(peer);
+	struct process *target_process = NULL;
+	gfarm_int64_t pid;
+	gfarm_int32_t fd;
+	char *gfsd_hostname = NULL;
+	struct host *spool_host = NULL;
+	int transaction = 0;
+	static const char diag[] = "GFM_PROTO_PROCESS_FD_REMOVE";
+
+	e = gfm_server_get_request(peer, diag, "lis",
+	    &pid, &fd, &gfsd_hostname);
+	if (e != GFARM_ERR_NO_ERROR) {
+		gflog_debug(GFARM_MSG_UNFIXED, "%s: %s",
+		    diag, gfarm_error_string(e));
+		return (e);
+	}
+	if (skip) {
+		free(gfsd_hostname);
+		return (GFARM_ERR_NO_ERROR);
+	}
+	giant_lock();
+
+	if (!from_client || user == NULL) {
+		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
+		gflog_debug(GFARM_MSG_UNFIXED, "%s: %s",
+		    diag, gfarm_error_string(e));
+	} else if (!user_is_super_admin(user)) {
+		e = GFARM_ERR_PERMISSION_DENIED;
+		gflog_debug(GFARM_MSG_UNFIXED, "%s: %s",
+		    diag, gfarm_error_string(e));
+	} else if (gfsd_hostname[0] != '\0' &&
+	    (spool_host = host_lookup(gfsd_hostname)) == NULL) {
+		e = GFARM_ERR_UNKNOWN_HOST;
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "%s: %s: %s", diag, gfsd_hostname, gfarm_error_string(e));
+	} else if (pid != -1) {
+		target_process = process_lookup(pid);
+		if (target_process == NULL) {
+			e = GFARM_ERR_NO_SUCH_PROCESS;
+			gflog_debug(GFARM_MSG_UNFIXED,
+			    "%s: pid %lld: %s", diag, (long long)pid, gfarm_error_string(e));
+		} else {
+			int n;
+
+			if (db_begin(diag) == GFARM_ERR_NO_ERROR)
+				transaction = 1;
+			n = process_fd_remove(target_process, fd, spool_host);
+			if (transaction)
+				db_end(diag);
+			giant_unlock();
+
+			e = gfm_server_put_reply(peer, diag, GFARM_ERR_NO_ERROR, "i", n);
+			free(gfsd_hostname);
+			return (e);
+		}
+	} else {
+		struct process_fd_remove_closure closure;
+
+		closure.fd = fd;
+		closure.spool_host = spool_host;
+		closure.n_processes = 0;
+
+		if (db_begin(diag) == GFARM_ERR_NO_ERROR)
+			transaction = 1;
+		gfarm_id_table_foreach(process_id_table, &closure,
+		    process_fd_remove_callback);
+		if (transaction)
+			db_end(diag);
+
+		giant_unlock();
+
+		e = gfm_server_put_reply(peer, diag, GFARM_ERR_NO_ERROR, "i",
+		    closure.n_processes);
+		free(gfsd_hostname);
+		return (e);
+	}
+	giant_unlock();
+
+	free(gfsd_hostname);
 	return (gfm_server_put_reply(peer, diag, e, ""));
 }
 

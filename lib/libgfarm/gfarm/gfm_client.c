@@ -79,6 +79,9 @@ struct gfm_connection {
 	char pid_key[GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET];
 
 	struct gfarm_metadb_server *real_server;
+	int gfmd_version_major;
+	int gfmd_version_minor;
+	int gfmd_version_teeny;
 
 	int failover_count;
 };
@@ -865,6 +868,14 @@ gfm_client_process_initialize(struct gfm_connection *gfm_server)
 	gfarm_error_t e;
 	struct gfarm_user_info user;
 	static const char diag[] = "gfm_client_process_initialize";
+	static void *config_vars[] = {
+		&gfarm_metadb_version_major,
+		&gfarm_metadb_version_minor,
+		&gfarm_metadb_version_teeny,
+	};
+	int major_version = gfarm_version_major();
+	int minor_version = gfarm_version_minor();
+	int teeny_version = gfarm_version_teeny();
 
 	gfm_client_connection_lock(gfm_server);
 
@@ -878,6 +889,8 @@ gfm_client_process_initialize(struct gfm_connection *gfm_server)
 
 	gfarm_auth_random(gfm_server->pid_key,
 	    GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET);
+
+	gfm_client_lock_config_get_var();
 
 	if ((e = gfm_client_compound_begin_request(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
@@ -896,6 +909,11 @@ gfm_client_process_initialize(struct gfm_connection *gfm_server)
 		gflog_warning(GFARM_MSG_1005283,
 		    "%s: user_info_get_mine request: %s",
 		    diag, gfarm_error_string(e));
+	else if ((e = gfm_client_config_get_vars_request(
+	    gfm_server, GFARM_ARRAY_LENGTH(config_vars), config_vars))
+	    != GFARM_ERR_NO_ERROR)
+		gflog_warning(GFARM_MSG_UNFIXED,
+		    "config_get_vars() request: %s", gfarm_error_string(e));
 	else if ((e = gfm_client_compound_end_request(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
 		gflog_warning(GFARM_MSG_1005284,
@@ -917,6 +935,11 @@ gfm_client_process_initialize(struct gfm_connection *gfm_server)
 		gflog_warning(GFARM_MSG_1005287,
 		    "%s: user_info_get_mine result: %s",
 		    diag, gfarm_error_string(e));
+	else if ((e = gfm_client_config_get_vars_result(
+	    gfm_server, GFARM_ARRAY_LENGTH(config_vars), config_vars))
+	    != GFARM_ERR_NO_ERROR)
+		gflog_warning(GFARM_MSG_UNFIXED,
+		    "config_get_vars() result: %s", gfarm_error_string(e));
 	else {
 		char *username_in_tenant;
 
@@ -942,11 +965,36 @@ gfm_client_process_initialize(struct gfm_connection *gfm_server)
 			free(gfm_server->username_in_tenant);
 
 			gfm_server->username_in_tenant = username_in_tenant;
+			gfm_server->gfmd_version_major =
+			    gfarm_metadb_version_major;
+			gfm_server->gfmd_version_minor =
+			    gfarm_metadb_version_minor;
+			gfm_server->gfmd_version_teeny =
+			    gfarm_metadb_version_teeny;
 		}
 		gfarm_user_info_free(&user);
 	}
 
+	gfm_client_unlock_config_get_var();
 	gfm_client_connection_unlock(gfm_server);
+
+	if (e == GFARM_ERR_NO_ERROR &&
+	    (gfm_server->gfmd_version_major < major_version ||
+		(gfm_server->gfmd_version_major == major_version &&
+		 (gfm_server->gfmd_version_minor < minor_version ||
+		  (gfm_server->gfmd_version_minor == minor_version &&
+		   gfm_server->gfmd_version_teeny < teeny_version))))) {
+		gflog_info(GFARM_MSG_UNFIXED,
+		    "gfmd version %d.%d.%d or later is expected, "
+		    "but it's %d.%d.%d",	
+		    gfarm_version_major(),
+		    gfarm_version_minor(),
+		    gfarm_version_teeny(),
+		    gfm_server->gfmd_version_major,
+		    gfm_server->gfmd_version_minor,
+		    gfm_server->gfmd_version_teeny);
+	}
+
 	return (e);
 }
 
@@ -4927,18 +4975,17 @@ gfm_client_process_fd_info(struct gfm_connection *gfm_server,
 }
 
 gfarm_error_t
-gfm_client_process_fd_remove_request(struct gfm_connection *gfm_server,
-	gfarm_pid_t pid, int fd, char *spool_host)
+gfm_client_process_fd_remove(struct gfm_connection *gfm_server,
+	gfarm_pid_t pid, int fd, char *spool_host, int *np)
 {
-	return (gfm_client_rpc_request(gfm_server, GFM_PROTO_PROCESS_FD_REMOVE,
-	    "lis", (long long)pid, fd, spool_host));
-}
+	gfarm_int32_t n;
+	gfarm_error_t e = gfm_client_rpc(gfm_server, 0,
+	    GFM_PROTO_PROCESS_FD_REMOVE, "lis/i",
+	    (long long)pid, fd, spool_host, &n);
 
-gfarm_error_t
-gfm_client_process_fd_remove_result(struct gfm_connection *gfm_server,
-	gfarm_mode_t *modep)
-{
-	return (gfm_client_rpc_result(gfm_server, 0, ""));
+	if (e == GFARM_ERR_NO_ERROR)
+		*np = n;
+	return (e);
 }
 
 /*

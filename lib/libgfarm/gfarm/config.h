@@ -264,6 +264,10 @@ gfarm_error_t gfm_client_config_get_vars_request(struct gfm_connection *,
 gfarm_error_t gfm_client_config_get_vars_result(struct gfm_connection *,
 	int, void **);
 
+/* XXX revisit config_get_var API */
+void gfm_client_lock_config_get_var(void);
+void gfm_client_unlock_config_get_var(void);
+
 /* miscellaneous */
 extern int gfarm_file_trace;
 

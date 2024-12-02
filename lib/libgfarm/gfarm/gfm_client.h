@@ -565,6 +565,9 @@ gfarm_error_t gfm_client_process_fd_info(struct gfm_connection *,
 	const char *, const char *, const char *, gfarm_uint64_t,
 	int *, struct gfarm_process_fd_info **);
 
+gfarm_error_t gfm_client_process_fd_remove(struct gfm_connection *,
+	gfarm_pid_t, int, char *, int *);
+
 /* compound request - convenience function */
 gfarm_error_t gfm_client_compound_fd_op(struct gfm_connection *, gfarm_int32_t,
 	gfarm_error_t (*)(struct gfm_connection *, void *),
