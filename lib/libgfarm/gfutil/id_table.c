@@ -947,6 +947,7 @@ main()
 			}
 		} else if (strcmp(command, "table_free") == 0) {
 			gfarm_id_table_free(id_table, free_test, NULL);
+			id_table = NULL;
 		} else if (strcmp(command, "base") == 0) {
 			if (sscanf(buffer, "%*s %d", &n) != 1) {
 				fprintf(stderr, "Usage: base <base>\n");
