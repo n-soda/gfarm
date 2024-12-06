@@ -186,11 +186,12 @@ extern char *gfarm_iostat_gfmd_path;
 extern char *gfarm_iostat_gfsd_path;
 extern int gfarm_iostat_max_client;
 
-/* miscellaneous configurations */
+/* miscellaneous gfmd configurations */
 extern char *gfarm_digest;
 extern int gfarm_read_only;
 extern int gfarm_simultaneous_replication_receivers;
 extern int gfarm_replication_busy_host;
+extern int gfarm_unconnected_gfsd_watch_interval;
 
 char *gfarm_alloc_name_in_tenant(const char *);
 

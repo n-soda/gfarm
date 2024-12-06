@@ -1065,6 +1065,7 @@ int gfarm_iostat_max_client = GFARM_CONFIG_MISC_DEFAULT;
 #define GFARM_READ_ONLY_DEFAULT 0 /* disable */
 #define GFARM_SIMULTANEOUS_REPLICATION_RECEIVERS_DEFAULT	20
 #define GFARM_REPLICATION_BUSY_HOST_DEFAULT	1
+#define GFARM_UNCONNECTED_GFSD_WATCH_INTERVAL_DEFAULT	1200 /* seconds */
 #define GFARM_GFSD_CONNECTION_CACHE_DEFAULT	256 /* 256 free connections */
 #define GFARM_GFMD_CONNECTION_CACHE_DEFAULT	8   /*   8 free connections */
 #define GFARM_DIRECTORY_QUOTA_COUNT_PER_USER_LIMIT_DEFAULT	100
@@ -1121,6 +1122,7 @@ char *gfarm_digest = NULL;
 int gfarm_read_only = GFARM_CONFIG_MISC_DEFAULT;
 int gfarm_simultaneous_replication_receivers = GFARM_CONFIG_MISC_DEFAULT;
 int gfarm_replication_busy_host = GFARM_CONFIG_MISC_DEFAULT;
+int gfarm_unconnected_gfsd_watch_interval = GFARM_CONFIG_MISC_DEFAULT;
 int gfarm_xattr_size_limit = GFARM_CONFIG_MISC_DEFAULT;
 int gfarm_xmlattr_size_limit = GFARM_CONFIG_MISC_DEFAULT;
 int gfarm_directory_quota_count_per_user_limit = GFARM_CONFIG_MISC_DEFAULT;
@@ -3704,6 +3706,9 @@ parse_one_line(const char *s, char *p,
 		    &gfarm_simultaneous_replication_receivers);
 	} else if (strcmp(s, o = "replication_busy_host") == 0) {
 		e = parse_set_misc_enabled(p, &gfarm_replication_busy_host);
+	} else if (strcmp(s, o = "unconnected_gfsd_watch_interval") == 0) {
+		e = parse_set_misc_int(p,
+		    &gfarm_unconnected_gfsd_watch_interval);
 	} else if (strcmp(s, o = "gfsd_connection_cache") == 0) {
 		e = parse_set_misc_int(p, &gfarm_ctxp->gfsd_connection_cache);
 	} else if (strcmp(s, o = "gfmd_connection_cache") == 0) {
@@ -4175,6 +4180,9 @@ gfarm_config_set_default_misc(void)
 	if (gfarm_replication_busy_host == GFARM_CONFIG_MISC_DEFAULT)
 		gfarm_replication_busy_host =
 		    GFARM_REPLICATION_BUSY_HOST_DEFAULT;
+	if (gfarm_unconnected_gfsd_watch_interval == GFARM_CONFIG_MISC_DEFAULT)
+		gfarm_unconnected_gfsd_watch_interval =
+		    GFARM_UNCONNECTED_GFSD_WATCH_INTERVAL_DEFAULT;
 	if (gfarm_ctxp->gfsd_connection_cache == GFARM_CONFIG_MISC_DEFAULT)
 		gfarm_ctxp->gfsd_connection_cache =
 		    GFARM_GFSD_CONNECTION_CACHE_DEFAULT;
@@ -4952,6 +4960,9 @@ static const struct gfarm_config_type config_types[] = {
 	{ "simultaneous_replication_receivers",
 	  FOR_METADB, CLIENT_PARSE, INT_POSITIVE,
 	  &gfarm_simultaneous_replication_receivers, 0 },
+	{ "unconnected_gfsd_watch_interval",
+	  FOR_METADB, CLIENT_PARSE, INT_POSITIVE,
+	  &gfarm_unconnected_gfsd_watch_interval, 0 },
 	{ "client_digest_check",
 	  FOR_CLIENT, CLIENT_PARSE, TYPE_ENABLED,
 	  NULL, offsetof(struct gfarm_context, client_digest_check) },

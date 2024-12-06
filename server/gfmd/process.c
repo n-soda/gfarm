@@ -2645,7 +2645,8 @@ process_fd_remove_callback(void *closure, struct gfarm_id_table *idtab,
 
 	if (target_process == NULL) {
 		gflog_notice(GFARM_MSG_UNFIXED,
-		    "process_fd_remove_callback(): pid %lld not found (shouldn't happen",
+		    "process_fd_remove_callback(): "
+		    "pid %lld not found (shouldn't happen",
 		    (long long)pid);
 		return;
 	}
@@ -2851,6 +2852,72 @@ process_get_path_for_trace_log(struct process *process, struct peer *peer,
 	return (GFARM_ERR_NO_ERROR);
 }
 
+static void
+process_unconnected_gfsd_process_count(void *closure,
+	struct gfarm_id_table *idtab, gfarm_int32_t pid, void *proc)
+{
+	int fd, *countp = closure, count = 0;
+	struct process *target_process = process_lookup(pid);
+
+	if (target_process == NULL) {
+		gflog_notice(GFARM_MSG_UNFIXED,
+		    "process_unconnected_gfsd_process_count(): "
+		    "pid %lld not found (shouldn't happen",
+		    (long long)pid);
+		return;
+	}
+	for (fd = 0; fd < target_process->nfiles; fd++) {
+		struct file_opening *fo = target_process->filetab[fd];
+
+		if (fo == NULL)
+			continue;
+		if (!inode_is_file(fo->inode))
+			continue;
+		if (fo->u.f.spool_opener != NULL) /* gfsd connected */
+			continue;
+
+		++count;
+	}
+	*countp += count;
+}
+
+static int
+unconnected_gfsd_count(void)
+{
+	int count = 0;
+
+	giant_lock();
+	gfarm_id_table_foreach(process_id_table, &count,
+	    process_unconnected_gfsd_process_count);
+	giant_unlock();
+
+	return (count);
+}
+
+static void *
+unconnected_gfsd_watcher(void *closure)
+{
+	int c, warned = 0;
+
+	for (;;) {
+		gfarm_sleep(gfarm_unconnected_gfsd_watch_interval);
+		c = unconnected_gfsd_count();
+		if (c == 0) {
+			if (warned) {
+				gflog_notice(GFARM_MSG_UNFIXED,
+				    "all unconnected gfsd reconnected "
+				    "or were removed by gfrmof");
+			}
+			break;
+		}
+		gflog_warning(GFARM_MSG_UNFIXED,
+		    "unconnected gfsd exists, please check them by gflsof");
+		warned = 1;
+	}
+
+	return (NULL);
+}
+
 void
 process_add_one(void *closure, struct db_process_arg *arg)
 {
@@ -2877,6 +2944,8 @@ process_init(void)
 		    "loading processes: %s", gfarm_error_string(e));
 }
 
+int unconnected_fd_count;
+
 void
 file_desc_add_one(void *closure, struct db_file_desc_arg *arg)
 {
@@ -2898,6 +2967,8 @@ file_desc_add_one(void *closure, struct db_file_desc_arg *arg)
 		    arg->gfsd_host, arg->gfsd_port,
 		    (long long)arg->fd_option,
 		    gfarm_error_string(e));
+	} else {
+		unconnected_fd_count++;
 	}
 	db_file_desc_arg_free(arg);
 }
@@ -2907,8 +2978,18 @@ file_desc_init(void)
 {
 	gfarm_error_t e;
 
+	unconnected_fd_count = 0;
+
 	e = db_file_desc_load(NULL, file_desc_add_one);
 	if (e != GFARM_ERR_NO_ERROR)
 		gflog_error(GFARM_MSG_UNFIXED,
 		    "loading file descriptors: %s", gfarm_error_string(e));
+
+	if (unconnected_fd_count > 0 &&
+	    (e = create_detached_thread(unconnected_gfsd_watcher, NULL))
+	    != GFARM_ERR_NO_ERROR)
+		gflog_fatal(GFARM_MSG_UNFIXED,
+		    "create_detached_thread(unconnected_gfsd_watcher): "
+		    "%s", gfarm_error_string(e));
+
 }
