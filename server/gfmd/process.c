@@ -2853,7 +2853,7 @@ process_get_path_for_trace_log(struct process *process, struct peer *peer,
 }
 
 static void
-process_unconnected_gfsd_process_count(void *closure,
+process_unconnected_gfsd_fd_count(void *closure,
 	struct gfarm_id_table *idtab, gfarm_int32_t pid, void *proc)
 {
 	int fd, *countp = closure, count = 0;
@@ -2861,7 +2861,7 @@ process_unconnected_gfsd_process_count(void *closure,
 
 	if (target_process == NULL) {
 		gflog_notice(GFARM_MSG_UNFIXED,
-		    "process_unconnected_gfsd_process_count(): "
+		    "process_unconnected_gfsd_fd_count(): "
 		    "pid %lld not found (shouldn't happen",
 		    (long long)pid);
 		return;
@@ -2882,13 +2882,13 @@ process_unconnected_gfsd_process_count(void *closure,
 }
 
 static int
-unconnected_gfsd_count(void)
+unconnected_gfsd_fd_count(void)
 {
 	int count = 0;
 
 	giant_lock();
 	gfarm_id_table_foreach(process_id_table, &count,
-	    process_unconnected_gfsd_process_count);
+	    process_unconnected_gfsd_fd_count);
 	giant_unlock();
 
 	return (count);
@@ -2901,17 +2901,19 @@ unconnected_gfsd_watcher(void *closure)
 
 	for (;;) {
 		gfarm_sleep(gfarm_unconnected_gfsd_watch_interval);
-		c = unconnected_gfsd_count();
+		c = unconnected_gfsd_fd_count();
 		if (c == 0) {
 			if (warned) {
 				gflog_notice(GFARM_MSG_UNFIXED,
-				    "all unconnected gfsd reconnected "
+				    "ALL DONE: all unconnected descriptors "
+				    "in gfsd reconnected "
 				    "or were removed by gfrmof");
 			}
 			break;
 		}
 		gflog_warning(GFARM_MSG_UNFIXED,
-		    "unconnected gfsd exists, please check them by gflsof");
+		    "%d write-opened descriptors remain to be unconnected "
+		    "in gfsd, please check them by \"gflsof -AW\"", c);
 		warned = 1;
 	}
 
