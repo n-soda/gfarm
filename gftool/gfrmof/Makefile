@@ -4,6 +4,8 @@ srcdir = .
 
 include $(top_srcdir)/makes/var.mk
 
+bindir = $(sbindir)
+
 PROGRAM = gfrmof
 SRCS = $(PROGRAM).c
 OBJS = $(PROGRAM).o

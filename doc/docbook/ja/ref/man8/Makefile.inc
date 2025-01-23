@@ -4,4 +4,5 @@ DOCBOOK = \
 	config-gfsd.8 \
 	gfdump.postgresql.8 \
 	gfmd.8 \
+	gfrmof.8 \
 	gfsd.8

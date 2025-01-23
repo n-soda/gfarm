@@ -1,0 +1,132 @@
+<?xml version="1.0"?>
+<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook V4.1.2//EN"
+  "http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+
+<refentry id="gfrmof.8">
+
+<refentryinfo><date>24 Jan 2025</date></refentryinfo>
+
+<refmeta>
+<refentrytitle>gfrmof</refentrytitle>
+<manvolnum>8</manvolnum>
+<refmiscinfo>Gfarm</refmiscinfo>
+</refmeta>
+<refnamediv id="name">
+<refname>gfrmof</refname>
+<refpurpose>remove unconnected open descriptors that remain in gfmd</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv id="synopsis">
+
+<cmdsynopsis sepchar=" ">
+  <command moreinfo="none">gfrmof</command>
+    <arg choice="opt" rep="norepeat">-P <replaceable>path</replaceable></arg>
+    <arg choice="opt" rep="norepeat">-d <replaceable>file-descriptor</replaceable></arg>
+    <arg choice="opt" rep="norepeat">-h <replaceable>file-system-node</replaceable></arg>
+    <arg choice="opt" rep="norepeat">-p <replaceable>global-PID</replaceable></arg>
+</cmdsynopsis>
+
+</refsynopsisdiv>
+
+<!-- body begins here -->
+
+<refsect1 id="description"><title>DESCRIPTION</title>
+<para>
+Removes unnecessary file descriptors that remain unconnected.
+</para>
+<para>
+gfmd keeps file open-states with the gfsd.
+Although gfsd reconnects to gfmd in after gfmd failover,
+in case gfsd is restarted, or a filesystem node crashes, etc,
+this file open-state may remain.
+At this time, gfmd periodically outputs the following warning log at
+the time interval specified by
+the directive <token>unconnected_gfsd_watch_interval</token>,
+</para>
+<para>
+3 write-opened descriptors remain to be unconnected in gfsd, please check them by "gflsof -AW"
+</para>
+<para>
+The first number in this log (3 in the example above) is
+the number of unconnected descriptors remaining.
+</para>
+<para>
+The gflsof -AW command in the log message displays the status of
+open file descriptors.
+If the port number in the GFSD column after the colon in the display is 0,
+the descriptor remains unconnected.
+gfrmof removes the descriptor.
+</para>
+<para>
+The gfsd process corresponding to the GPID NUMBER checked by the
+gflsof command can be confirmed by “gfsd: client/NUMBER”
+in the COMMAND field of the ps command output on the filesystem node.
+If the gfsd process corresponding to the GPID is found by the ps command,
+it will be reconnected to the gfmd soon, so please do not remove it by gfrmof.
+</para>
+<para>
+At least one of the <option>-d</option>, <option>-h</option>, 
+or <option>-p</option> options must be specified.
+If specified in combination, only unconnected open states
+that satisfy all specified conditions will be removed.
+Only one option of the same type may be specified at a time, 
+nd if multiple same type options are specified,
+the last one specified takes effect.
+</para>
+Only users with the gfarmadm group privileges for the default tenant can
+execute the gfrmof command.
+<para>
+
+</para>
+
+</refsect1>
+
+<refsect1 id="options"><title>OPTIONS</title>
+<variablelist>
+
+<varlistentry>
+<term><option>-P</option> <parameter moreinfo="none">path</parameter></term>
+<listitem>
+<para>
+Specify a pathname or a Gfarm URL to identify metadata server
+which will be accessed by this command.
+If not specified, "." is used as the default value.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><option>-d</option> <parameter moreinfo="none">file-descriptor</parameter></term>
+<listitem>
+<para>
+Specifies the descriptor number to be removed.
+Corresponds to the number in the FD column of the gflsof command output.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><option>-h</option> <parameter moreinfo="none">file-system-node</parameter></term>
+<listitem>
+<para>
+Specifies the name of the filesystem node to be removed.
+It corresponds to the part before the colon in the GFSD column
+of the gflsof command output.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><option>-h</option> <parameter moreinfo="none">global-PID</parameter></term>
+<listitem>
+<para>
+Specifies the global PID to be removed.
+Corresponds to the GPID field in the gflsof command output.
+</para>
+</listitem>
+</varlistentry>
+
+</variablelist>
+</refsect1>
+
+</refentry>

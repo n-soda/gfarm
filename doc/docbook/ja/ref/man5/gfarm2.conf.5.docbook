@@ -5,7 +5,7 @@
 
 <refentry id="gfarm2.conf.5">
 
-<refentryinfo><date>11 Sep 2023</date></refentryinfo>
+<refentryinfo><date>24 Jan 2025</date></refentryinfo>
 
 <refmeta>
 <refentrytitle>gfarm2.conf</refentrytitle>
@@ -1946,6 +1946,37 @@ disableにすると、busyホストには複製は作成されません。
 </varlistentry>
 
 <varlistentry>
+<term><token>unconnected_gfsd_watch_interval</token> <parameter moreinfo="none">秒数</parameter></term>
+<listitem>
+<para>
+gfmd は、gfmd と gfsd の接続が切れた後、まだ gfsd が再接続していない
+ファイルディスクリプタを監視します。
+このディレクティブは、この未接続gfsdを警告する下記のログを出力する時間間隔を指
+定します。
+</para>
+<para>
+3 write-opened descriptors remain to be unconnected in gfsd,
+please check them by "gflsof -AW"
+</para>
+<para>
+このログの先頭の数字 (上の例だと 3) は、
+残っている未接続なディスクリプタの数です。
+</para>
+<para>
+デフォルトは 1200秒 (20分) です。
+</para>
+<para>
+この文は gfmd.conf のみで有効です。
+gfarm2.confでは無視されます。
+</para>
+<para>例:</para>
+<literallayout format="linespecific" class="normal">
+	unconnected_gfsd_watch_interval 1200
+</literallayout>
+</listitem>
+</varlistentry>
+
+<varlistentry>
 <term><token>gfsd_connection_cache</token> <parameter moreinfo="none">コネクション数</parameter></term>
 <listitem>
 <para>gfarmライブラリがgfsdとの通信に用いるコネクションを、いくつ
@@ -3559,6 +3590,7 @@ OpenSSL の security_level 機能の数値を指定します。
 	&lt;read_only_statement&gt; |
 	&lt;simultaneous_replication_receivers_statement&gt; |
 	&lt;replication_busy_host_statement&gt; |
+	&lt;unconnected_gfsd_watch_interval_statement&gt; |
 	&lt;gfsd_connection_cache_statement&gt; |
 	&lt;xmlattr_size_limit_statement&gt; |
 	&lt;xattr_size_limit_statement&gt; |
@@ -4131,6 +4163,11 @@ OpenSSL の security_level 機能の数値を指定します。
 <varlistentry>
 <term>&lt;replication_busy_host_statement&gt; ::=</term>
 <listitem><literallayout format="linespecific" class="normal">"replication_busy_host" &lt;validity&gt;</literallayout></listitem>
+</varlistentry>
+
+<varlistentry>
+<term>&lt;unconnected_gfsd_watch_interval_statement&gt; ::=</term>
+<listitem><literallayout format="linespecific" class="normal">"unconnected_gfsd_watch_interval" &lt;number&gt;</literallayout></listitem>
 </varlistentry>
 
 <varlistentry>

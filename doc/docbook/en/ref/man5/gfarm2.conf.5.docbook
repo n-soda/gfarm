@@ -5,7 +5,7 @@
 
 <refentry id="gfarm2.conf.5">
 
-<refentryinfo><date>11 Sep 2023</date></refentryinfo>
+<refentryinfo><date>25 Jan 2025</date></refentryinfo>
 
 <refmeta>
 <refentrytitle>gfarm2.conf</refentrytitle>
@@ -2003,6 +2003,36 @@ The default is 20.
 </varlistentry>
 
 <varlistentry>
+<term><token>unconnected_gfsd_watch_interval</token> <parameter moreinfo="none">seconds</parameter></term>
+<listitem>
+<para>
+gfmd monitors file descriptors that have not yet been reconnected by
+gfsd after the connection between gfmd and gfsd has been broken.
+This directive specifies the time interval at which the following logs
+warning of this unconnected gfsd will be output.
+</para>
+<para>
+3 write-opened descriptors remain to be unconnected in gfsd,
+please check them by "gflsof -AW"
+</para>
+<para>
+The first number in this log (3 in the example above) is
+the number of unconnected descriptors remaining.
+</para>
+<para>
+The default value is 1200 seconds (20 minutes).
+</para>
+<para>
+This parameter is only available in gfmd.conf, and ignored in gfarm2.conf.
+</para>
+<para>Example:</para>
+<literallayout format="linespecific" class="normal">
+	unconnected_gfsd_watch_interval 1200
+</literallayout>
+</listitem>
+</varlistentry>
+
+<varlistentry>
 <term><token>gfsd_connection_cache</token> <parameter moreinfo="none">number</parameter></term>
 <listitem>
 <para>This directive specifies maximum number of cached gfsd connections.
@@ -3613,6 +3643,7 @@ The default for this parameter is determined at OpenSSL compile time.
 	&lt;read_only_statement&gt; |
 	&lt;simultaneous_replication_receivers_statement&gt; |
 	&lt;replication_busy_host_statement&gt; |
+	&lt;unconnected_gfsd_watch_interval_statement&gt; |
 	&lt;gfsd_connection_cache_statement&gt; |
 	&lt;xmlattr_size_limit_statement&gt; |
 	&lt;xattr_size_limit_statement&gt; |
@@ -4185,6 +4216,11 @@ The default for this parameter is determined at OpenSSL compile time.
 <varlistentry>
 <term>&lt;replication_busy_host_statement&gt; ::=</term>
 <listitem><literallayout format="linespecific" class="normal">"replication_busy_host" &lt;validity&gt;</literallayout></listitem>
+</varlistentry>
+
+<varlistentry>
+<term>&lt;unconnected_gfsd_watch_interval_statement&gt; ::=</term>
+<listitem><literallayout format="linespecific" class="normal">"unconnected_gfsd_watch_interval" &lt;number&gt;</literallayout></listitem>
 </varlistentry>
 
 <varlistentry>
