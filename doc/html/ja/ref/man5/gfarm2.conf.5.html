@@ -1498,6 +1498,34 @@ disableにすると、busyホストには複製は作成されません。
 	replication_busy_host disable<br>
 </p></div>
 </dd>
+<dt><span class="term"><span class="token">unconnected_gfsd_watch_interval</span> <em class="parameter"><code>秒数</code></em></span></dt>
+<dd>
+<p>
+gfmd は、gfmd と gfsd の接続が切れた後、まだ gfsd が再接続していない
+ファイルディスクリプタを監視します。
+このディレクティブは、この未接続gfsdを警告する下記のログを出力する時間間隔を指
+定します。
+</p>
+<p>
+3 write-opened descriptors remain to be unconnected in gfsd,
+please check them by "gflsof -AW"
+</p>
+<p>
+このログの先頭の数字 (上の例だと 3) は、
+残っている未接続なディスクリプタの数です。
+</p>
+<p>
+デフォルトは 1200秒 (20分) です。
+</p>
+<p>
+この文は gfmd.conf のみで有効です。
+gfarm2.confでは無視されます。
+</p>
+<p>例:</p>
+<div class="literallayout"><p><br>
+	unconnected_gfsd_watch_interval 1200<br>
+</p></div>
+</dd>
 <dt><span class="term"><span class="token">gfsd_connection_cache</span> <em class="parameter"><code>コネクション数</code></em></span></dt>
 <dd>
 <p>gfarmライブラリがgfsdとの通信に用いるコネクションを、いくつ
@@ -2797,6 +2825,7 @@ OpenSSL の security_level 機能の数値を指定します。
 	&lt;read_only_statement&gt; |<br>
 	&lt;simultaneous_replication_receivers_statement&gt; |<br>
 	&lt;replication_busy_host_statement&gt; |<br>
+	&lt;unconnected_gfsd_watch_interval_statement&gt; |<br>
 	&lt;gfsd_connection_cache_statement&gt; |<br>
 	&lt;xmlattr_size_limit_statement&gt; |<br>
 	&lt;xattr_size_limit_statement&gt; |<br>
@@ -3050,6 +3079,8 @@ OpenSSL の security_level 機能の数値を指定します。
 <dd><div class="literallayout"><p>"simultaneous_replication_receivers" &lt;number&gt;</p></div></dd>
 <dt><span class="term">&lt;replication_busy_host_statement&gt; ::=</span></dt>
 <dd><div class="literallayout"><p>"replication_busy_host" &lt;validity&gt;</p></div></dd>
+<dt><span class="term">&lt;unconnected_gfsd_watch_interval_statement&gt; ::=</span></dt>
+<dd><div class="literallayout"><p>"unconnected_gfsd_watch_interval" &lt;number&gt;</p></div></dd>
 <dt><span class="term">&lt;gfsd_connection_cache_statement&gt; ::=</span></dt>
 <dd><div class="literallayout"><p>"gfsd_connection_cache" &lt;number&gt;</p></div></dd>
 <dt><span class="term">&lt;xmlattr_size_limit_statement&gt; ::=</span></dt>

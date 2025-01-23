@@ -2,12 +2,12 @@
 .\"     Title: gfarm2.conf
 .\"    Author: [FIXME: author] [see http://www.docbook.org/tdg5/en/html/author]
 .\" Generator: DocBook XSL Stylesheets vsnapshot <http://docbook.sf.net/>
-.\"      Date: 11 Sep 2023
+.\"      Date: 25 Jan 2025
 .\"    Manual: Gfarm
 .\"    Source: Gfarm
 .\"  Language: English
 .\"
-.TH "GFARM2\&.CONF" "5" "11 Sep 2023" "Gfarm" "Gfarm"
+.TH "GFARM2\&.CONF" "5" "25 Jan 2025" "Gfarm" "Gfarm"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -1878,6 +1878,31 @@ For example,
 .\}
 .RE
 .PP
+unconnected_gfsd_watch_interval \fIseconds\fR
+.RS 4
+gfmd monitors file descriptors that have not yet been reconnected by gfsd after the connection between gfmd and gfsd has been broken\&. This directive specifies the time interval at which the following logs warning of this unconnected gfsd will be output\&.
+.sp
+3 write\-opened descriptors remain to be unconnected in gfsd, please check them by "gflsof \-AW"
+.sp
+The first number in this log (3 in the example above) is the number of unconnected descriptors remaining\&.
+.sp
+The default value is 1200 seconds (20 minutes)\&.
+.sp
+This parameter is only available in gfmd\&.conf, and ignored in gfarm2\&.conf\&.
+.sp
+Example:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+	unconnected_gfsd_watch_interval 1200
+.fi
+.if n \{\
+.RE
+.\}
+.RE
+.PP
 gfsd_connection_cache \fInumber\fR
 .RS 4
 This directive specifies maximum number of cached gfsd connections\&. The default is 16\&.
@@ -3490,6 +3515,7 @@ This is a grammar of gfarm2\&.conf described by the BNF notation\&.
 	<read_only_statement> |
 	<simultaneous_replication_receivers_statement> |
 	<replication_busy_host_statement> |
+	<unconnected_gfsd_watch_interval_statement> |
 	<gfsd_connection_cache_statement> |
 	<xmlattr_size_limit_statement> |
 	<xattr_size_limit_statement> |
@@ -4786,6 +4812,20 @@ This is a grammar of gfarm2\&.conf described by the BNF notation\&.
 .\}
 .nf
 "replication_busy_host" <validity>
+.fi
+.if n \{\
+.RE
+.\}
+.RE
+.PP
+<unconnected_gfsd_watch_interval_statement> ::=
+.RS 4
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+"unconnected_gfsd_watch_interval" <number>
 .fi
 .if n \{\
 .RE

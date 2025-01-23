@@ -1554,6 +1554,33 @@ The default is 20.
 	replication_busy_host disable<br>
 </p></div>
 </dd>
+<dt><span class="term"><span class="token">unconnected_gfsd_watch_interval</span> <em class="parameter"><code>seconds</code></em></span></dt>
+<dd>
+<p>
+gfmd monitors file descriptors that have not yet been reconnected by
+gfsd after the connection between gfmd and gfsd has been broken.
+This directive specifies the time interval at which the following logs
+warning of this unconnected gfsd will be output.
+</p>
+<p>
+3 write-opened descriptors remain to be unconnected in gfsd,
+please check them by "gflsof -AW"
+</p>
+<p>
+The first number in this log (3 in the example above) is
+the number of unconnected descriptors remaining.
+</p>
+<p>
+The default value is 1200 seconds (20 minutes).
+</p>
+<p>
+This parameter is only available in gfmd.conf, and ignored in gfarm2.conf.
+</p>
+<p>Example:</p>
+<div class="literallayout"><p><br>
+	unconnected_gfsd_watch_interval 1200<br>
+</p></div>
+</dd>
 <dt><span class="term"><span class="token">gfsd_connection_cache</span> <em class="parameter"><code>number</code></em></span></dt>
 <dd>
 <p>This directive specifies maximum number of cached gfsd connections.
@@ -2844,6 +2871,7 @@ The default for this parameter is determined at OpenSSL compile time.
 	&lt;read_only_statement&gt; |<br>
 	&lt;simultaneous_replication_receivers_statement&gt; |<br>
 	&lt;replication_busy_host_statement&gt; |<br>
+	&lt;unconnected_gfsd_watch_interval_statement&gt; |<br>
 	&lt;gfsd_connection_cache_statement&gt; |<br>
 	&lt;xmlattr_size_limit_statement&gt; |<br>
 	&lt;xattr_size_limit_statement&gt; |<br>
@@ -3097,6 +3125,8 @@ The default for this parameter is determined at OpenSSL compile time.
 <dd><div class="literallayout"><p>"simultaneous_replication_receivers" &lt;number&gt;</p></div></dd>
 <dt><span class="term">&lt;replication_busy_host_statement&gt; ::=</span></dt>
 <dd><div class="literallayout"><p>"replication_busy_host" &lt;validity&gt;</p></div></dd>
+<dt><span class="term">&lt;unconnected_gfsd_watch_interval_statement&gt; ::=</span></dt>
+<dd><div class="literallayout"><p>"unconnected_gfsd_watch_interval" &lt;number&gt;</p></div></dd>
 <dt><span class="term">&lt;gfsd_connection_cache_statement&gt; ::=</span></dt>
 <dd><div class="literallayout"><p>"gfsd_connection_cache" &lt;number&gt;</p></div></dd>
 <dt><span class="term">&lt;xmlattr_size_limit_statement&gt; ::=</span></dt>

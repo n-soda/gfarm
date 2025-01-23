@@ -1,0 +1,93 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>gfrmof</title>
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF"><div class="refentry">
+<a name="gfrmof.8"></a><div class="titlepage"></div>
+<div class="refnamediv">
+<a name="name"></a><h2>Name</h2>
+<p>gfrmof — gfmd に残る未接続ディスクリプタを削除する。</p>
+</div>
+<div class="refsynopsisdiv">
+<a name="synopsis"></a><h2>Synopsis</h2>
+<div class="cmdsynopsis"><p><code class="command">gfrmof</code>  [-P <em class="replaceable"><code>パス名</code></em>] [-d <em class="replaceable"><code>ディスクリプタ番号</code></em>] [-h <em class="replaceable"><code>ファイルシステムノード</code></em>] [-p <em class="replaceable"><code>グローバルPID</code></em>]</p></div>
+</div>
+<div class="refsect1">
+<a name="description"></a><h2>DESCRIPTION</h2>
+<p>
+未接続のまま残っている不要なファイルディスクリプタを削除します。
+</p>
+<p>
+gfmd は、gfsd との間のファイルオープン状態を維持しています。
+gfmd のフェイルオーバーの際、gfsd は gfmd へ再接続しますが、
+gfsd を再起動したり、ファイルシステムノードがクラッシュしたなどの場合には、
+このファイルオープン状態が残ってしまうことがあります。
+このとき gfmd はディレクティブ <span class="token">unconnected_gfsd_watch_interval</span> で
+指定された時間間隔で、定期的に以下の警告ログを出力します。
+</p>
+<p>
+3 write-opened descriptors remain to be unconnected in gfsd, please check them by "gflsof -AW"
+</p>
+<p>
+このログの先頭の数字 (上の例だと 3) は、未接続のまま残っている
+ディスクリプタ数です。
+</p>
+<p>
+ログメッセージにある gflsof -AW コマンドは、
+オープン中のファイルディスクリプタの状態を表示します。
+その表示の GFSD欄のコロンより後の部分のポート番号が 0 となっているものが、
+未接続のまま残っているディスクリプタです。
+gfrmof で、そのディスクリプタを消去します。
+</p>
+<p>
+なお gflsof コマンドで調べた GPID の数字に対応する gfsd プロセスは、
+ファイルシステムノード上の ps コマンド出力の
+COMMAND欄の「gfsd: client/数字」で確認できます。
+ps コマンドで確認して GPID に対応する gfsd プロセスが存在する場合、
+やがて gfmd へ再接続しますから、gfrmof による消去は行なわないでください。
+</p>
+<p>
+<code class="option">-d</code>, <code class="option">-h</code>, <code class="option">-p</code> オプションは
+最低でもどれか一つは指定する必要があります。
+また組み合わせて指定した場合には、
+指定したすべての条件を満たす未接続ファイルオープン状態のみを削除します。
+同種のオプションが指定できるのは1回のみであり、
+複数指定した場合は最後に指定したものが有効になります。
+</p>
+<p>
+デフォルトテナントのgfarmadmグループ権限を持つユーザのみが、
+gfrmofコマンドを実行できます。
+</p>
+</div>
+<div class="refsect1">
+<a name="options"></a><h2>OPTIONS</h2>
+<div class="variablelist"><dl class="variablelist">
+<dt><span class="term"><code class="option">-P</code> <em class="parameter"><code>パス名</code></em></span></dt>
+<dd><p>
+このコマンドがアクセスするメタデータサーバを特定するための
+パス名または Gfarm URL を指定します。
+省略した場合は、「.」を指定したのと同じ意味になります。
+</p></dd>
+<dt><span class="term"><code class="option">-d</code> <em class="parameter"><code>ディスクリプタ番号</code></em></span></dt>
+<dd><p>
+削除対象となるディスクリプタ番号を指定します。
+gflsof コマンド出力の FD欄の数字部分に対応します。
+<code class="option">-d</code> オプションは、必ず　<code class="option">-P</code> オプションと
+ともに指定する必要があります。
+</p></dd>
+<dt><span class="term"><code class="option">-h</code> <em class="parameter"><code>ファイルシステムノード名</code></em></span></dt>
+<dd><p>
+削除対象となるファイルシステムノード名を指定します。
+gflsof コマンド出力の GFSD欄のコロンより手前の部分に対応します。
+</p></dd>
+<dt><span class="term"><code class="option">-h</code> <em class="parameter"><code>グローバルPID</code></em></span></dt>
+<dd><p>
+削除対象となるグローバルPIDを指定します。
+gflsof コマンド出力の GPID欄に対応します。
+</p></dd>
+</dl></div>
+</div>
+</div></body>
+</html>

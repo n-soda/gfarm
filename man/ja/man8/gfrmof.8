@@ -1,0 +1,80 @@
+'\" t
+.\"     Title: gfrmof
+.\"    Author: [FIXME: author] [see http://www.docbook.org/tdg5/en/html/author]
+.\" Generator: DocBook XSL Stylesheets vsnapshot <http://docbook.sf.net/>
+.\"      Date: 24 Jan 2025
+.\"    Manual: Gfarm
+.\"    Source: Gfarm
+.\"  Language: English
+.\"
+.TH "GFRMOF" "8" "24 Jan 2025" "Gfarm" "Gfarm"
+.\" -----------------------------------------------------------------
+.\" * Define some portability stuff
+.\" -----------------------------------------------------------------
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.\" http://bugs.debian.org/507673
+.\" http://lists.gnu.org/archive/html/groff/2009-02/msg00013.html
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.\" -----------------------------------------------------------------
+.\" * set default formatting
+.\" -----------------------------------------------------------------
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.\" -----------------------------------------------------------------
+.\" * MAIN CONTENT STARTS HERE *
+.\" -----------------------------------------------------------------
+.SH "NAME"
+gfrmof \- gfmd に残る未接続ディスクリプタを削除する。
+.SH "SYNOPSIS"
+.HP \w'\fBgfrmof\fR\ 'u
+\fBgfrmof\fR [\-P\ \fIパス名\fR] [\-d\ \fIディスクリプタ番号\fR] [\-h\ \fIファイルシステムノード\fR] [\-p\ \fIグローバルPID\fR]
+.SH "DESCRIPTION"
+.PP
+未接続のまま残っている不要なファイルディスクリプタを削除します。
+.PP
+gfmd は、gfsd との間のファイルオープン状態を維持しています。 gfmd のフェイルオーバーの際、gfsd は gfmd へ再接続しますが、 gfsd を再起動したり、ファイルシステムノードがクラッシュしたなどの場合には、 このファイルオープン状態が残ってしまうことがあります。 このとき gfmd はディレクティブ
+unconnected_gfsd_watch_interval
+で 指定された時間間隔で、定期的に以下の警告ログを出力します。
+.PP
+3 write\-opened descriptors remain to be unconnected in gfsd, please check them by "gflsof \-AW"
+.PP
+このログの先頭の数字 (上の例だと 3) は、未接続のまま残っている ディスクリプタ数です。
+.PP
+ログメッセージにある gflsof \-AW コマンドは、 オープン中のファイルディスクリプタの状態を表示します。 その表示の GFSD欄のコロンより後の部分のポート番号が 0 となっているものが、 未接続のまま残っているディスクリプタです。 gfrmof で、そのディスクリプタを消去します。
+.PP
+なお gflsof コマンドで調べた GPID の数字に対応する gfsd プロセスは、 ファイルシステムノード上の ps コマンド出力の COMMAND欄の「gfsd: client/数字」で確認できます。 ps コマンドで確認して GPID に対応する gfsd プロセスが存在する場合、 やがて gfmd へ再接続しますから、gfrmof による消去は行なわないでください。
+.PP
+\fB\-d\fR,
+\fB\-h\fR,
+\fB\-p\fR
+オプションは 最低でもどれか一つは指定する必要があります。 また組み合わせて指定した場合には、 指定したすべての条件を満たす未接続ファイルオープン状態のみを削除します。 同種のオプションが指定できるのは1回のみであり、 複数指定した場合は最後に指定したものが有効になります。
+.PP
+デフォルトテナントのgfarmadmグループ権限を持つユーザのみが、 gfrmofコマンドを実行できます。
+.SH "OPTIONS"
+.PP
+\fB\-P\fR \fIパス名\fR
+.RS 4
+このコマンドがアクセスするメタデータサーバを特定するための パス名または Gfarm URL を指定します。 省略した場合は、「\&.」を指定したのと同じ意味になります。
+.RE
+.PP
+\fB\-d\fR \fIディスクリプタ番号\fR
+.RS 4
+削除対象となるディスクリプタ番号を指定します。 gflsof コマンド出力の FD欄の数字部分に対応します。
+\fB\-d\fR
+オプションは、必ず　\fB\-P\fR
+オプションと ともに指定する必要があります。
+.RE
+.PP
+\fB\-h\fR \fIファイルシステムノード名\fR
+.RS 4
+削除対象となるファイルシステムノード名を指定します。 gflsof コマンド出力の GFSD欄のコロンより手前の部分に対応します。
+.RE
+.PP
+\fB\-h\fR \fIグローバルPID\fR
+.RS 4
+削除対象となるグローバルPIDを指定します。 gflsof コマンド出力の GPID欄に対応します。
+.RE

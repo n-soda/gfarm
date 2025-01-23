@@ -1,0 +1,79 @@
+'\" t
+.\"     Title: gfrmof
+.\"    Author: [FIXME: author] [see http://www.docbook.org/tdg5/en/html/author]
+.\" Generator: DocBook XSL Stylesheets vsnapshot <http://docbook.sf.net/>
+.\"      Date: 24 Jan 2025
+.\"    Manual: Gfarm
+.\"    Source: Gfarm
+.\"  Language: English
+.\"
+.TH "GFRMOF" "8" "24 Jan 2025" "Gfarm" "Gfarm"
+.\" -----------------------------------------------------------------
+.\" * Define some portability stuff
+.\" -----------------------------------------------------------------
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.\" http://bugs.debian.org/507673
+.\" http://lists.gnu.org/archive/html/groff/2009-02/msg00013.html
+.\" ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.\" -----------------------------------------------------------------
+.\" * set default formatting
+.\" -----------------------------------------------------------------
+.\" disable hyphenation
+.nh
+.\" disable justification (adjust text to left margin only)
+.ad l
+.\" -----------------------------------------------------------------
+.\" * MAIN CONTENT STARTS HERE *
+.\" -----------------------------------------------------------------
+.SH "NAME"
+gfrmof \- remove unconnected open descriptors that remain in gfmd
+.SH "SYNOPSIS"
+.HP \w'\fBgfrmof\fR\ 'u
+\fBgfrmof\fR [\-P\ \fIpath\fR] [\-d\ \fIfile\-descriptor\fR] [\-h\ \fIfile\-system\-node\fR] [\-p\ \fIglobal\-PID\fR]
+.SH "DESCRIPTION"
+.PP
+Removes unnecessary file descriptors that remain unconnected\&.
+.PP
+gfmd keeps file open\-states with the gfsd\&. Although gfsd reconnects to gfmd in after gfmd failover, in case gfsd is restarted, or a filesystem node crashes, etc, this file open\-state may remain\&. At this time, gfmd periodically outputs the following warning log at the time interval specified by the directive
+unconnected_gfsd_watch_interval,
+.PP
+3 write\-opened descriptors remain to be unconnected in gfsd, please check them by "gflsof \-AW"
+.PP
+The first number in this log (3 in the example above) is the number of unconnected descriptors remaining\&.
+.PP
+The gflsof \-AW command in the log message displays the status of open file descriptors\&. If the port number in the GFSD column after the colon in the display is 0, the descriptor remains unconnected\&. gfrmof removes the descriptor\&.
+.PP
+The gfsd process corresponding to the GPID NUMBER checked by the gflsof command can be confirmed by \(lqgfsd: client/NUMBER\(rq in the COMMAND field of the ps command output on the filesystem node\&. If the gfsd process corresponding to the GPID is found by the ps command, it will be reconnected to the gfmd soon, so please do not remove it by gfrmof\&.
+.PP
+At least one of the
+\fB\-d\fR,
+\fB\-h\fR, or
+\fB\-p\fR
+options must be specified\&. If specified in combination, only unconnected open states that satisfy all specified conditions will be removed\&. Only one option of the same type may be specified at a time, nd if multiple same type options are specified, the last one specified takes effect\&.
+
+Only users with the gfarmadm group privileges for the default tenant can
+execute the gfrmof command\&.
+.PP
+.SH "OPTIONS"
+.PP
+\fB\-P\fR \fIpath\fR
+.RS 4
+Specify a pathname or a Gfarm URL to identify metadata server which will be accessed by this command\&. If not specified, "\&." is used as the default value\&.
+.RE
+.PP
+\fB\-d\fR \fIfile\-descriptor\fR
+.RS 4
+Specifies the descriptor number to be removed\&. Corresponds to the number in the FD column of the gflsof command output\&.
+.RE
+.PP
+\fB\-h\fR \fIfile\-system\-node\fR
+.RS 4
+Specifies the name of the filesystem node to be removed\&. It corresponds to the part before the colon in the GFSD column of the gflsof command output\&.
+.RE
+.PP
+\fB\-h\fR \fIglobal\-PID\fR
+.RS 4
+Specifies the global PID to be removed\&. Corresponds to the GPID field in the gflsof command output\&.
+.RE

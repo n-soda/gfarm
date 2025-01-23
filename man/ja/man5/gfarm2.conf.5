@@ -2,12 +2,12 @@
 .\"     Title: gfarm2.conf
 .\"    Author: [FIXME: author] [see http://www.docbook.org/tdg5/en/html/author]
 .\" Generator: DocBook XSL Stylesheets vsnapshot <http://docbook.sf.net/>
-.\"      Date: 11 Sep 2023
+.\"      Date: 24 Jan 2025
 .\"    Manual: Gfarm
 .\"    Source: Gfarm
 .\"  Language: English
 .\"
-.TH "GFARM2\&.CONF" "5" "11 Sep 2023" "Gfarm" "Gfarm"
+.TH "GFARM2\&.CONF" "5" "24 Jan 2025" "Gfarm" "Gfarm"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -1716,6 +1716,31 @@ gfmd主導の複製先にbusyホストを含むかどうか設定します。 di
 .\}
 .RE
 .PP
+unconnected_gfsd_watch_interval \fI秒数\fR
+.RS 4
+gfmd は、gfmd と gfsd の接続が切れた後、まだ gfsd が再接続していない ファイルディスクリプタを監視します。 このディレクティブは、この未接続gfsdを警告する下記のログを出力する時間間隔を指 定します。
+.sp
+3 write\-opened descriptors remain to be unconnected in gfsd, please check them by "gflsof \-AW"
+.sp
+このログの先頭の数字 (上の例だと 3) は、 残っている未接続なディスクリプタの数です。
+.sp
+デフォルトは 1200秒 (20分) です。
+.sp
+この文は gfmd\&.conf のみで有効です。 gfarm2\&.confでは無視されます。
+.sp
+例:
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+	unconnected_gfsd_watch_interval 1200
+.fi
+.if n \{\
+.RE
+.\}
+.RE
+.PP
 gfsd_connection_cache \fIコネクション数\fR
 .RS 4
 gfarmライブラリがgfsdとの通信に用いるコネクションを、いくつ までキャッシュするかを指定します。 デフォルトは16コネクションです。
@@ -3344,6 +3369,7 @@ gfarm2\&.confの文法をBNFで記述すると、下記のようになります�
 	<read_only_statement> |
 	<simultaneous_replication_receivers_statement> |
 	<replication_busy_host_statement> |
+	<unconnected_gfsd_watch_interval_statement> |
 	<gfsd_connection_cache_statement> |
 	<xmlattr_size_limit_statement> |
 	<xattr_size_limit_statement> |
@@ -4640,6 +4666,20 @@ gfarm2\&.confの文法をBNFで記述すると、下記のようになります�
 .\}
 .nf
 "replication_busy_host" <validity>
+.fi
+.if n \{\
+.RE
+.\}
+.RE
+.PP
+<unconnected_gfsd_watch_interval_statement> ::=
+.RS 4
+.sp
+.if n \{\
+.RS 4
+.\}
+.nf
+"unconnected_gfsd_watch_interval" <number>
 .fi
 .if n \{\
 .RE

@@ -1,0 +1,95 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>gfrmof</title>
+<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF"><div class="refentry">
+<a name="gfrmof.8"></a><div class="titlepage"></div>
+<div class="refnamediv">
+<a name="name"></a><h2>Name</h2>
+<p>gfrmof — remove unconnected open descriptors that remain in gfmd</p>
+</div>
+<div class="refsynopsisdiv">
+<a name="synopsis"></a><h2>Synopsis</h2>
+<div class="cmdsynopsis"><p><code class="command">gfrmof</code>  [-P <em class="replaceable"><code>path</code></em>] [-d <em class="replaceable"><code>file-descriptor</code></em>] [-h <em class="replaceable"><code>file-system-node</code></em>] [-p <em class="replaceable"><code>global-PID</code></em>]</p></div>
+</div>
+<div class="refsect1">
+<a name="description"></a><h2>DESCRIPTION</h2>
+<p>
+Removes unnecessary file descriptors that remain unconnected.
+</p>
+<p>
+gfmd keeps file open-states with the gfsd.
+Although gfsd reconnects to gfmd in after gfmd failover,
+in case gfsd is restarted, or a filesystem node crashes, etc,
+this file open-state may remain.
+At this time, gfmd periodically outputs the following warning log at
+the time interval specified by
+the directive <span class="token">unconnected_gfsd_watch_interval</span>,
+</p>
+<p>
+3 write-opened descriptors remain to be unconnected in gfsd, please check them by "gflsof -AW"
+</p>
+<p>
+The first number in this log (3 in the example above) is
+the number of unconnected descriptors remaining.
+</p>
+<p>
+The gflsof -AW command in the log message displays the status of
+open file descriptors.
+If the port number in the GFSD column after the colon in the display is 0,
+the descriptor remains unconnected.
+gfrmof removes the descriptor.
+</p>
+<p>
+The gfsd process corresponding to the GPID NUMBER checked by the
+gflsof command can be confirmed by “gfsd: client/NUMBER”
+in the COMMAND field of the ps command output on the filesystem node.
+If the gfsd process corresponding to the GPID is found by the ps command,
+it will be reconnected to the gfmd soon, so please do not remove it by gfrmof.
+</p>
+<p>
+At least one of the <code class="option">-d</code>, <code class="option">-h</code>, 
+or <code class="option">-p</code> options must be specified.
+If specified in combination, only unconnected open states
+that satisfy all specified conditions will be removed.
+Only one option of the same type may be specified at a time, 
+nd if multiple same type options are specified,
+the last one specified takes effect.
+</p>
+Only users with the gfarmadm group privileges for the default tenant can
+execute the gfrmof command.
+<p>
+
+</p>
+</div>
+<div class="refsect1">
+<a name="options"></a><h2>OPTIONS</h2>
+<div class="variablelist"><dl class="variablelist">
+<dt><span class="term"><code class="option">-P</code> <em class="parameter"><code>path</code></em></span></dt>
+<dd><p>
+Specify a pathname or a Gfarm URL to identify metadata server
+which will be accessed by this command.
+If not specified, "." is used as the default value.
+</p></dd>
+<dt><span class="term"><code class="option">-d</code> <em class="parameter"><code>file-descriptor</code></em></span></dt>
+<dd><p>
+Specifies the descriptor number to be removed.
+Corresponds to the number in the FD column of the gflsof command output.
+</p></dd>
+<dt><span class="term"><code class="option">-h</code> <em class="parameter"><code>file-system-node</code></em></span></dt>
+<dd><p>
+Specifies the name of the filesystem node to be removed.
+It corresponds to the part before the colon in the GFSD column
+of the gflsof command output.
+</p></dd>
+<dt><span class="term"><code class="option">-h</code> <em class="parameter"><code>global-PID</code></em></span></dt>
+<dd><p>
+Specifies the global PID to be removed.
+Corresponds to the GPID field in the gflsof command output.
+</p></dd>
+</dl></div>
+</div>
+</div></body>
+</html>
