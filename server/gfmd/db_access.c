@@ -2427,6 +2427,7 @@ db_file_desc_arg_alloc(gfarm_pid_t pid, int fd, int open_flags,
 	arg->client_port = client_port;
 	strcpy(arg->gfsd_host, gfsd_host);
 	arg->gfsd_port = gfsd_port;
+	arg->fd_option = 0;
 	return (arg);
 }
 
