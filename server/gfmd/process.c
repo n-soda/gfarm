@@ -476,8 +476,8 @@ process_propagate_spool_opened(struct process *process,
 	    != GFARM_ERR_NO_ERROR)
 		client_port = 0;
 
-	if (fo->u.f.spool_host == NULL ||
-	    (e = peer_get_port(fo->opener, &gfsd_peer_port))
+	if (fo->u.f.spool_opener == NULL ||
+	    (e = peer_get_port(fo->u.f.spool_opener, &gfsd_peer_port))
 	    != GFARM_ERR_NO_ERROR)
 		gfsd_peer_port = 0;
 
@@ -1312,10 +1312,8 @@ process_close_or_abort_file(struct process *process,
 
 				inode_check_pending_replication(fo);
 
-				if (gfarm_get_metadb_replication_enabled() &&
-				    mdhost_self_is_master())
-					(void)process_propagate_spool_closed(
-					    process, fd);
+				(void)process_propagate_spool_closed(
+				    process, fd);
 			}
 		}
 		if (fo->opener != NULL) {
