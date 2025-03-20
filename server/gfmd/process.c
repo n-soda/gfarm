@@ -885,6 +885,10 @@ process_new_generation_done(struct process *process, struct peer *peer, int fd,
 			 * closing REOPENed file,
 			 * but the client is still opening
 			 */
+			inode_del_ref_spool_writers(fo->inode);
+			inode_check_pending_replication(fo);
+			(void)process_propagate_spool_closed(process, fd);
+
 			fo->u.f.spool_opener = NULL;
 			fo->u.f.spool_host = NULL;
 		} else {
