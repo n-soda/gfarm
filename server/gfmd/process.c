@@ -2694,6 +2694,11 @@ gfm_server_process_fd_remove(struct peer *peer, int from_client, int skip)
 		e = GFARM_ERR_UNKNOWN_HOST;
 		gflog_debug(GFARM_MSG_UNFIXED,
 		    "%s: %s: %s", diag, gfsd_hostname, gfarm_error_string(e));
+	} else if (fd != -1 && pid == -1) {
+		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
+		gflog_debug(GFARM_MSG_UNFIXED,
+		    "%s: fd %d is specified without pid: %s",
+		    diag, (int)fd, gfarm_error_string(e));
 	} else if (pid != -1) {
 		target_process = process_lookup(pid);
 		if (target_process == NULL) {
