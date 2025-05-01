@@ -2,12 +2,12 @@
 .\"     Title: gfrmof
 .\"    Author: [FIXME: author] [see http://www.docbook.org/tdg5/en/html/author]
 .\" Generator: DocBook XSL Stylesheets vsnapshot <http://docbook.sf.net/>
-.\"      Date: 24 Jan 2025
+.\"      Date: 01 May 2025
 .\"    Manual: Gfarm
 .\"    Source: Gfarm
 .\"  Language: English
 .\"
-.TH "GFRMOF" "8" "24 Jan 2025" "Gfarm" "Gfarm"
+.TH "GFRMOF" "8" "01 May 2025" "Gfarm" "Gfarm"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -48,6 +48,8 @@ unconnected_gfsd_watch_interval
 .PP
 なお gflsof コマンドで調べた GPID の数字に対応する gfsd プロセスは、 ファイルシステムノード上の ps コマンド出力の COMMAND欄の「gfsd: client/数字」で確認できます。 ps コマンドで確認して GPID に対応する gfsd プロセスが存在する場合、 やがて gfmd へ再接続しますから、gfrmof による消去は行なわないでください。
 .PP
+gfsd と接続しているディスクリプタを指定した場合、削除は行なわれません。 単に削除操作を無視します。
+.PP
 \fB\-d\fR,
 \fB\-h\fR,
 \fB\-p\fR
@@ -65,7 +67,7 @@ unconnected_gfsd_watch_interval
 .RS 4
 削除対象となるディスクリプタ番号を指定します。 gflsof コマンド出力の FD欄の数字部分に対応します。
 \fB\-d\fR
-オプションは、必ず　\fB\-P\fR
+オプションは、必ず　\fB\-p\fR
 オプションと ともに指定する必要があります。
 .RE
 .PP

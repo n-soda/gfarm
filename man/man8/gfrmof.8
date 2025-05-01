@@ -2,12 +2,12 @@
 .\"     Title: gfrmof
 .\"    Author: [FIXME: author] [see http://www.docbook.org/tdg5/en/html/author]
 .\" Generator: DocBook XSL Stylesheets vsnapshot <http://docbook.sf.net/>
-.\"      Date: 24 Jan 2025
+.\"      Date: 01 May 2025
 .\"    Manual: Gfarm
 .\"    Source: Gfarm
 .\"  Language: English
 .\"
-.TH "GFRMOF" "8" "24 Jan 2025" "Gfarm" "Gfarm"
+.TH "GFRMOF" "8" "01 May 2025" "Gfarm" "Gfarm"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -47,6 +47,8 @@ The gflsof \-AW command in the log message displays the status of open file desc
 .PP
 The gfsd process corresponding to the GPID NUMBER checked by the gflsof command can be confirmed by \(lqgfsd: client/NUMBER\(rq in the COMMAND field of the ps command output on the filesystem node\&. If the gfsd process corresponding to the GPID is found by the ps command, it will be reconnected to the gfmd soon, so please do not remove it by gfrmof\&.
 .PP
+If a descriptor connected to gfsd is specified, no removal is performed\&. It simply ignores the remove operation\&.
+.PP
 At least one of the
 \fB\-d\fR,
 \fB\-h\fR, or
@@ -65,7 +67,11 @@ Specify a pathname or a Gfarm URL to identify metadata server which will be acce
 .PP
 \fB\-d\fR \fIfile\-descriptor\fR
 .RS 4
-Specifies the descriptor number to be removed\&. Corresponds to the number in the FD column of the gflsof command output\&.
+Specifies the descriptor number to be removed\&. Corresponds to the number in the FD column of the gflsof command output\&. The
+\fB\-d\fR
+option must be specified with the
+\fB\-p\fR
+option\&.
 .RE
 .PP
 \fB\-h\fR \fIfile\-system\-node\fR

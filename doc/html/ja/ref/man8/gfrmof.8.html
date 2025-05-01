@@ -49,6 +49,10 @@ ps コマンドで確認して GPID に対応する gfsd プロセスが存在�
 やがて gfmd へ再接続しますから、gfrmof による消去は行なわないでください。
 </p>
 <p>
+gfsd と接続しているディスクリプタを指定した場合、削除は行なわれません。
+単に削除操作を無視します。
+</p>
+<p>
 <code class="option">-d</code>, <code class="option">-h</code>, <code class="option">-p</code> オプションは
 最低でもどれか一つは指定する必要があります。
 また組み合わせて指定した場合には、
@@ -74,7 +78,7 @@ gfrmofコマンドを実行できます。
 <dd><p>
 削除対象となるディスクリプタ番号を指定します。
 gflsof コマンド出力の FD欄の数字部分に対応します。
-<code class="option">-d</code> オプションは、必ず　<code class="option">-P</code> オプションと
+<code class="option">-d</code> オプションは、必ず　<code class="option">-p</code> オプションと
 ともに指定する必要があります。
 </p></dd>
 <dt><span class="term"><code class="option">-h</code> <em class="parameter"><code>ファイルシステムノード名</code></em></span></dt>

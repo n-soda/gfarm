@@ -50,6 +50,10 @@ If the gfsd process corresponding to the GPID is found by the ps command,
 it will be reconnected to the gfmd soon, so please do not remove it by gfrmof.
 </p>
 <p>
+If a descriptor connected to gfsd is specified, no removal is performed.
+It simply ignores the remove operation.
+</p>
+<p>
 At least one of the <code class="option">-d</code>, <code class="option">-h</code>, 
 or <code class="option">-p</code> options must be specified.
 If specified in combination, only unconnected open states
@@ -77,6 +81,8 @@ If not specified, "." is used as the default value.
 <dd><p>
 Specifies the descriptor number to be removed.
 Corresponds to the number in the FD column of the gflsof command output.
+The <code class="option">-d</code> option must be specified with
+the <code class="option">-p</code> option.
 </p></dd>
 <dt><span class="term"><code class="option">-h</code> <em class="parameter"><code>file-system-node</code></em></span></dt>
 <dd><p>
