@@ -4,7 +4,7 @@
 
 <refentry id="gfrmof.8">
 
-<refentryinfo><date>24 Jan 2025</date></refentryinfo>
+<refentryinfo><date>01 May 2025</date></refentryinfo>
 
 <refmeta>
 <refentrytitle>gfrmof</refentrytitle>
@@ -65,6 +65,10 @@ If the gfsd process corresponding to the GPID is found by the ps command,
 it will be reconnected to the gfmd soon, so please do not remove it by gfrmof.
 </para>
 <para>
+If a descriptor connected to gfsd is specified, no removal is performed.
+It simply ignores the remove operation.
+</para>
+<para>
 At least one of the <option>-d</option>, <option>-h</option>, 
 or <option>-p</option> options must be specified.
 If specified in combination, only unconnected open states
@@ -101,6 +105,8 @@ If not specified, "." is used as the default value.
 <para>
 Specifies the descriptor number to be removed.
 Corresponds to the number in the FD column of the gflsof command output.
+The <option>-d</option> option must be specified with
+the <option>-p</option> option.
 </para>
 </listitem>
 </varlistentry>
