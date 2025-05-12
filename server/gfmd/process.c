@@ -282,6 +282,7 @@ static gfarm_error_t process_close_or_abort_file(struct process *,
 static int
 process_del_ref(struct process *process, struct peer *peer, int from_client)
 {
+	gfarm_error_t e;
 	int fd;
 	gfarm_mode_t mode;
 	struct file_opening *fo;
@@ -339,6 +340,10 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 	/* detach myself from children list */
 	process->siblings.next->prev = process->siblings.prev;
 	process->siblings.prev->next = process->siblings.next;
+
+	if ((e = db_process_free(process->pid)) != GFARM_ERR_NO_ERROR)
+		gflog_error(GFARM_MSG_UNFIXED, "db_process_free(%lld): %s",
+		    (long long)process->pid, gfarm_error_string(e));
 
 	gfarm_id_free(process_id_table, (gfarm_int32_t)process->pid);
 
