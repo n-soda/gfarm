@@ -1484,10 +1484,10 @@ peer_unset_pending_new_generation_by_cookie(
 		 * is incremented in metadata.
 		 * Perhaps cookie->old_size is right, though.
 		 */
-		inode_new_generation_by_cookie_finish(
+		process_new_generation_by_cookie_finish(
 		    inode, peer, cookie->id, INODE_CLOSE_V2_4, reason,
 		    inode_get_size(inode), NULL, NULL,
-		    user_tenant_name(peer_get_user(peer)));
+		    user_tenant_name(peer_get_user(peer)), "connection abort");
 		GFARM_HCIRCLEQ_REMOVE(cookie, cookie_link);
 		free(cookie);
 	}

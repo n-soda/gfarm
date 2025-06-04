@@ -341,7 +341,8 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 	process->siblings.next->prev = process->siblings.prev;
 	process->siblings.prev->next = process->siblings.next;
 
-	if ((e = db_process_free(process->pid)) != GFARM_ERR_NO_ERROR)
+	if ((process->flags & PROCESS_PROPAGATED) != 0 &&
+	    (e = db_process_free(process->pid)) != GFARM_ERR_NO_ERROR)
 		gflog_error(GFARM_MSG_UNFIXED, "db_process_free(%lld): %s",
 		    (long long)process->pid, gfarm_error_string(e));
 
@@ -936,6 +937,131 @@ process_new_generation_by_fd_abort(struct process *process, struct peer *peer,
 	    (long long)inode_get_number(fo->inode),
 	    (long long)inode_get_gen(fo->inode),
 	    (long long)inode_get_size(fo->inode), gfarm_error_string(e));
+}
+
+struct process_find_fd_by_gfsd_and_inode_closure {
+	struct inode *inode;
+	struct host *spool_host;
+
+	gfarm_int32_t n_found;
+
+	struct process *target_process;
+	int target_fd;
+};
+
+static void
+process_find_fd_by_gfsd_and_inode_callback(void *closure,
+	struct gfarm_id_table *idtab,
+	gfarm_int32_t pid, void *proc)
+{
+	struct process_find_fd_by_gfsd_and_inode_closure *c = closure;
+	struct process *target_process = process_lookup(pid);
+	int fd;
+
+	if (target_process == NULL) {
+		gflog_notice(GFARM_MSG_UNFIXED,
+		    "process_find_fd_gfsd_by_inode_callback(): "
+		    "pid %lld not found. this shouldn't happen",
+		    (long long)pid);
+		return;
+	}
+	if (c->n_found > 1)
+		return; /* early abort */
+	for (fd = 0; fd < target_process->nfiles; fd++) {
+		struct file_opening *fo = target_process->filetab[fd];
+
+		if (fo == NULL)
+			continue;
+		if (fo->inode != c->inode)
+			continue;
+		if (!inode_is_file(fo->inode))
+			continue;
+		if (fo->u.f.spool_host != c->spool_host)
+			continue;
+		/* XXX should we check fo->u.f.spool_opener too? */
+
+		if (++c->n_found == 1) {
+			c->target_process = target_process;
+			c->target_fd = fd;
+		} else { /* c->n_found > 1 */
+			return; /* early abort */
+		}
+	}
+}
+
+/*
+ * NOTE:
+ * - caller of this function should acquire giant_lock as well
+ * - caller of this function SHOULD call db_begin()/db_end() around this
+ */
+gfarm_error_t
+process_new_generation_by_cookie_finish(struct inode *inode,
+	struct peer *peer, gfarm_uint64_t cookie,
+	enum inode_close_mode close_mode, gfarm_error_t result,
+	gfarm_off_t size,
+	struct gfarm_timespec *atime, struct gfarm_timespec *mtime,
+	char *username, const char *diag)
+{
+	gfarm_error_t e;
+	struct host *spool_host;
+	struct process_find_fd_by_gfsd_and_inode_closure closure;
+
+	if ((spool_host = peer_get_host(peer)) == NULL) {
+		gflog_error(GFARM_MSG_UNFIXED, "%s: inode %lld:%lld: "
+		    "generation_updated_by_cookie: from unknown host %s",
+		    diag,
+		    (long long)inode_get_number(inode),
+		    (long long)inode_get_gen(inode),
+		     peer_get_hostname(peer));
+	} else {
+		closure.inode = inode;
+		closure.spool_host = spool_host;
+		closure.n_found = 0;
+		closure.target_process = NULL;
+		closure.target_fd = -1;
+
+		gfarm_id_table_foreach(process_id_table, &closure,
+		    process_find_fd_by_gfsd_and_inode_callback);
+
+		if (closure.n_found == 1) {
+			if (closure.target_process == NULL ||
+			    closure.target_fd == -1) {
+				/* shouldn't happen */
+				gflog_error(GFARM_MSG_UNFIXED,
+				    "%s: FHCLOSE_WRITE inode %lld host %s: "
+				    "process %lld or fd %d is invalid",
+				    diag,
+				    (long long)inode_get_number(inode),
+				    host_name(spool_host),
+				    closure.target_process != NULL ?
+				    (long long)
+				    closure.target_process->pid : -1,
+				    closure.target_fd);
+			} else {
+				process_close_or_abort_file(
+				    closure.target_process, peer, 0,
+				    closure.target_fd, NULL, 1, diag);
+			}
+		} else if (closure.n_found > 1) {
+			gflog_warning(GFARM_MSG_UNFIXED,
+			    "%s: ambiguous FHCLOSE_WRITE: "
+			    "please use \"gfrmof -h %s\" appropriately "
+			    "against inode %lld",
+			    diag, host_name(spool_host),
+			    (long long)inode_get_number(inode));
+		} else {
+			gflog_warning(GFARM_MSG_UNFIXED,
+			    "%s: FHCLOSE_WRITE inode %lld: "
+			    "no descriptor for %s",
+			    diag,
+			    (long long)inode_get_number(inode),
+			    host_name(spool_host));
+		}
+	}
+
+	e = inode_new_generation_by_cookie_finish(inode, peer, cookie,
+	    close_mode, result, size, atime, mtime, username);
+	return (e);
 }
 
 static gfarm_error_t

@@ -20,7 +20,10 @@ gfarm_error_t process_new_generation_done(struct process *, struct peer *,
 	struct gfarm_timespec *, struct gfarm_timespec *, const char *);
 void process_new_generation_by_fd_abort(struct process *, struct peer *,
 	int, gfarm_error_t, const char *);
-
+gfarm_error_t process_new_generation_by_cookie_finish(struct inode *,
+	struct peer *, gfarm_uint64_t, enum inode_close_mode, gfarm_error_t,
+	gfarm_off_t, struct gfarm_timespec *, struct gfarm_timespec *, char *,
+	const char *);
 
 void process_attach_peer(struct process *, struct peer *);
 void process_detach_peer(struct process *, struct peer *, const char *);

@@ -4150,9 +4150,10 @@ generation_updated_by_cookie_common(struct peer *peer, int from_client,
 
 		if (!read_only && db_begin(diag) == GFARM_ERR_NO_ERROR)
 			transaction = 1;
-		e = inode_new_generation_by_cookie_finish(
+		e = process_new_generation_by_cookie_finish(
 		    inode, peer, cookie, close_mode, result,
-		    size, atime, mtime, user_tenant_name(peer_get_user(peer)));
+		    size, atime, mtime, user_tenant_name(peer_get_user(peer)),
+		    diag);
 		if (transaction)
 			db_end(diag);
 
