@@ -718,40 +718,40 @@ negotiate_with_gfm_server(int n_config_vars, void **config_vars,
 
 	if ((e = gfm_client_compound_begin_request(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1004374, "compound_begin request: %s",
+		gflog_notice(GFARM_MSG_1004374, "compound_begin request: %s",
 		    gfarm_error_string(e));
 	else if (canonical_self_name != NULL &&
 	    (e = gfm_client_hostname_set_request(gfm_server,
 	    canonical_self_name)) != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1004375,
+		gflog_notice(GFARM_MSG_1004375,
 		    "hostname_set(%s) request: %s", canonical_self_name,
 		    gfarm_error_string(e));
 	else if ((e = gfm_client_config_get_vars_request(
 	    gfm_server, n_config_vars, config_vars)) != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1004376,
+		gflog_notice(GFARM_MSG_1004376,
 		    "config_get_vars() request: %s", gfarm_error_string(e));
 	else if ((e = gfm_client_compound_end_request(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1004377, "compound_end request: %s",
+		gflog_notice(GFARM_MSG_1004377, "compound_end request: %s",
 		    gfarm_error_string(e));
 
 	else if ((e = gfm_client_compound_begin_result(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1004378, "compound_begin result: %s",
+		gflog_notice(GFARM_MSG_1004378, "compound_begin result: %s",
 		    gfarm_error_string(e));
 	else if (canonical_self_name != NULL &&
 	    (e = gfm_client_hostname_set_result(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1004379,
+		gflog_notice(GFARM_MSG_1004379,
 		    "hostname_set(%s) result: %s", canonical_self_name,
 		    gfarm_error_string(e));
 	else if ((e = gfm_client_config_get_vars_result(
 	    gfm_server, n_config_vars, config_vars)) != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1004380,
+		gflog_notice(GFARM_MSG_1004380,
 		    "config_get_vars() result: %s", gfarm_error_string(e));
 	else if ((e = gfm_client_compound_end_result(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1004381, "compound_end result: %s",
+		gflog_notice(GFARM_MSG_1004381, "compound_end result: %s",
 		    gfarm_error_string(e));
 
 	*ep = e;
@@ -1342,7 +1342,7 @@ gfs_server_process_set(struct gfp_xdr *client)
 		gflog_debug(GFARM_MSG_1003400,
 		    "gfm_client_process_set: %s", gfarm_error_string(e));
 	else
-		(void)gfarm_proctitle_set("cilent/%lld %s",
+		(void)gfarm_proctitle_set("client/%lld %s",
 		    (long long)pid, gflog_get_auxiliary_info());
 
 	gfs_server_put_reply(client, diag, e, "");
@@ -1376,7 +1376,7 @@ gfs_server_process_reset(struct gfp_xdr *client)
 		    keylen, pid);
 		if (e == GFARM_ERR_NO_ERROR) {
 			fd_usable_to_gfmd = 1;
-			(void)gfarm_proctitle_set("cilent/%lld %s",
+			(void)gfarm_proctitle_set("client/%lld %s",
 			    (long long)pid, gflog_get_auxiliary_info());
 			break;
 		}
@@ -2269,7 +2269,8 @@ gfm_client_compound_put_fd_request(gfarm_int32_t net_fd, const char *diag)
 }
 
 static gfarm_error_t
-gfm_client_compound_put_fd_result(struct gfp_xdr *client, const char *diag)
+gfm_client_compound_put_fd_result(struct gfp_xdr *client, gfarm_int32_t net_fd,
+	const char *diag)
 {
 	gfarm_error_t e;
 
@@ -2285,9 +2286,9 @@ gfm_client_compound_put_fd_result(struct gfp_xdr *client, const char *diag)
 		    diag, gfarm_error_string(e));
 	else if ((e = gfm_client_put_fd_result(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_put_fd_problem(GFARM_MSG_1002295, client, e,
-		    "gfmd protocol: put_fd result error on %s: %s",
-		    diag, gfarm_error_string(e));
+		gflog_put_fd_problem(GFARM_MSG_UNFIXED, client, e,
+		    "gfmd protocol: put_fd_result fd=%d error on %s: %s",
+		    net_fd, diag, gfarm_error_string(e));
 
 	return (e);
 }
@@ -2335,7 +2336,7 @@ gfs_server_reopen(const char *diag, struct gfp_xdr *client,
 		gflog_error(GFARM_MSG_1003772,
 		    "%s cksum_get request: %s",
 		    diag, gfarm_error_string(e));
-	else if ((e = gfm_client_compound_put_fd_result(client, diag))
+	else if ((e = gfm_client_compound_put_fd_result(client, net_fd, diag))
 	    != GFARM_ERR_NO_ERROR)
 		gflog_put_fd_problem(GFARM_MSG_1003332, client, e,
 		    "%s: put_fd_result fd=%d: %s",
@@ -2421,7 +2422,7 @@ close_on_metadb_server(struct gfp_xdr *client, gfarm_int32_t fd,
 		gflog_error(GFARM_MSG_1004124,
 		    "%s: close_request fd=%d: %s",
 		    diag, fd, gfarm_error_string(e));
-	else if ((e = gfm_client_compound_put_fd_result(client, diag))
+	else if ((e = gfm_client_compound_put_fd_result(client, fd, diag))
 	    != GFARM_ERR_NO_ERROR)
 		gflog_put_fd_problem(GFARM_MSG_1004125, client, e,
 		    "%s: compound_put_fd_result fd=%d: %s",
@@ -2876,11 +2877,11 @@ is_not_modified(struct gfp_xdr *client, gfarm_int32_t fd, const char *diag)
 	    != GFARM_ERR_NO_ERROR)
 		gflog_error(GFARM_MSG_1003777, "%s cksum_get request: %s",
 		    diag, gfarm_error_string(e));
-	else if ((e = gfm_client_compound_put_fd_result(client, diag))
+	else if ((e = gfm_client_compound_put_fd_result(client, fd, diag))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_put_fd_problem(GFARM_MSG_1003778, client, e,
-		    "%s: compound_put_fd_result: %s",
-		    diag, gfarm_error_string(e));
+		gflog_put_fd_problem(GFARM_MSG_UNFIXED, client, e,
+		    "%s: compound_put_fd_result fd=%d: %s",
+		    diag, fd, gfarm_error_string(e));
 	else if ((e = gfm_client_cksum_get_result(gfm_server, &cksum_type,
 	     sizeof tmp_cksum, &cksum_len, tmp_cksum, &cksum_flags))
 	    != GFARM_ERR_NO_ERROR)
@@ -3061,11 +3062,11 @@ close_fd(struct gfp_xdr *client, gfarm_int32_t fd, struct file_entry *fe,
 	else if ((e = close_request(fe)) != GFARM_ERR_NO_ERROR)
 		gflog_error(GFARM_MSG_1000488,
 		    "%s close request: %s", diag, gfarm_error_string(e));
-	else if ((e = gfm_client_compound_put_fd_result(client, diag))
+	else if ((e = gfm_client_compound_put_fd_result(client, fd, diag))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_put_fd_problem(GFARM_MSG_1003338, client, e,
-		    "%s compound_put_fd_result: %s",
-		    diag, gfarm_error_string(e));
+		gflog_put_fd_problem(GFARM_MSG_UNFIXED, client, e,
+		    "%s compound_put_fd_result fd=%d: %s",
+		    diag, fd, gfarm_error_string(e));
 	else if ((fe->flags & (FILE_FLAG_DIGEST_FINISH|FILE_FLAG_DIGEST_AVAIL|
 	    FILE_FLAG_WRITTEN)) == FILE_FLAG_DIGEST_FINISH &&
 	    (e = gfm_client_cksum_set_result(gfm_server))
@@ -3126,11 +3127,11 @@ close_fd(struct gfp_xdr *client, gfarm_int32_t fd, struct file_entry *fe,
 			gflog_error(GFARM_MSG_1002301,
 			    "%s generation_updated request: %s",
 			    diag, gfarm_error_string(e2));
-		else if ((e2 = gfm_client_compound_put_fd_result(client, diag))
-		    != GFARM_ERR_NO_ERROR)
-			gflog_put_fd_problem(GFARM_MSG_1003341, client, e2,
-			    "%s compound_put_fd_result: %s",
-			    diag, gfarm_error_string(e2));
+		else if ((e2 = gfm_client_compound_put_fd_result(client,
+		    fd, diag)) != GFARM_ERR_NO_ERROR)
+			gflog_put_fd_problem(GFARM_MSG_UNFIXED, client, e2,
+			    "%s compound_put_fd_result fd=%d: %s",
+			    diag, fd, gfarm_error_string(e2));
 		else if ((fe->flags &
 		    (FILE_FLAG_DIGEST_CALC|FILE_FLAG_DIGEST_FINISH)) ==
 		    (FILE_FLAG_DIGEST_CALC|FILE_FLAG_DIGEST_FINISH) &&
@@ -3278,9 +3279,9 @@ close_fd_somehow(struct gfp_xdr *client,
 				    "close_fd_somehow/close_fd");
 				failedover = 1;
 			} else if (e != GFARM_ERR_NO_ERROR) {
-				gflog_put_fd_problem(GFARM_MSG_1004134,
-				    client, e, "close_fd: %s",
-				    gfarm_error_string(e));
+				gflog_put_fd_problem(GFARM_MSG_UNFIXED,
+				    client, e, "close_fd fd=%d: %s",
+				    fd, gfarm_error_string(e));
 			}
 		}
 
@@ -4040,11 +4041,11 @@ replica_adding(struct gfp_xdr *client, gfarm_int32_t net_fd, char *src_host,
 		gflog_error(GFARM_MSG_1004145,
 		    "%s: gfm_client_replica_adding_request request=%s: %s",
 		    diag, request, gfarm_error_string(e));
-	else if ((e = gfm_client_compound_put_fd_result(client, diag))
+	else if ((e = gfm_client_compound_put_fd_result(client, net_fd, diag))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_put_fd_problem(GFARM_MSG_1003356, client, e,
-		    "%s: compound_put_fd_result reqeust=%s: %s",
-		    diag, request, gfarm_error_string(e));
+		gflog_put_fd_problem(GFARM_MSG_UNFIXED, client, e,
+		    "%s: compound_put_fd_result request=%s fd=%d: %s",
+		    diag, request, net_fd, gfarm_error_string(e));
 	else if ((e = gfm_client_replica_adding_cksum_result(gfm_server,
 	    &ino, &gen, &filesize,
 	    &cksum_type, cksum_size, &cksum_len, cksum, &cksum_request_flags))
@@ -4096,11 +4097,11 @@ replica_added(struct gfp_xdr *client, gfarm_int32_t net_fd,
 		gflog_error(GFARM_MSG_1004148,
 		    "%s: gfm_client_replica_added2_request request=%s: %s",
 		    diag, request, gfarm_error_string(e));
-	else if ((e = gfm_client_compound_put_fd_result(client, diag))
+	else if ((e = gfm_client_compound_put_fd_result(client, net_fd, diag))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_put_fd_problem(GFARM_MSG_1003359, client, e,
-		    "%s: compound_put_fd_result request=%s: %s",
-		    diag, request, gfarm_error_string(e));
+		gflog_put_fd_problem(GFARM_MSG_UNFIXED, client, e,
+		    "%s: compound_put_fd_result request=%s fd=%d: %s",
+		    diag, request, net_fd, gfarm_error_string(e));
 	else if ((e = gfm_client_replica_added_result(gfm_server))
 	    != GFARM_ERR_NO_ERROR) {
 		if (debug_mode)

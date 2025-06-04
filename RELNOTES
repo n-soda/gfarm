@@ -1,3 +1,35 @@
+Release note for Gfarm 2.8.7
+============================
+
+[2025.4.11]
+
+Bug fix
+* gfs_pio_sendfile(), gfs_pio_recvfile() - fix an issue that prevented
+  transfer of files larger than 2,147,479,552 bytes to/from local storage
+
+Release note for Gfarm 2.8.6
+============================
+
+[2024.12.16]
+
+New environment variable
+* GFARM_SASL_USER, GFARM_SASL_PASSWORD, GFARM_SASL_MECHANISMS,
+  GFARM_SASL_REAML
+
+Updated feature
+* gfptar - --update and --append options and many other enhancements,
+  see the manual page of gfptar(1) or gfptar --help.
+* gfptar - reduce memory consumption
+* adjust log level
+
+Bug fix
+* gfptar - fix issues of file names containing sharps and semicolons,
+  and long multi-bytes file names
+* gfptar - fix possible stall when I/O error occurs
+* gfjournal - fix assersion failure with -l option, introduced in the
+  version 2.8.0
+* gfsd - fix noisy error log if inter-gfsd connection is encrypted [#1164]
+
 Release note for Gfarm 2.8.5
 ============================
 
@@ -135,6 +167,9 @@ Updated feature
   method
 * gfuser - -L option to display more user information
 * gfstatus - -S option to display static settings
+
+Bug fix
+* race condition about GFM_PROTO_CLOSE_WRITE_V2_4 [#1126]
 
 Release note for Gfarm 2.7.25
 =============================

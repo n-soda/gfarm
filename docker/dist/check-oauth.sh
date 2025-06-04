@@ -37,13 +37,16 @@ echo "*** oauth2 ***"
 : ${USER:=$(id -un)}
 PASSF=~/local/.jwt-pass
 PASS=
-jwt-parse > /dev/null || PASS=$(sh ./init-jwt.sh)
-[ X$PASS = X ] && PASS=$(cat $PASSF) || echo $PASS > $PASSF
-[ X$PASS = X ] || run_jwt_agent $PASS
+jwt-parse > /dev/null || {
+	PASS=$(sh ./init-jwt.sh)
+	[ X$PASS = X ] && PASS=$(cat $PASSF) || echo $PASS > $PASSF
+	[ X$PASS = X ] || run_jwt_agent $PASS
+}
 gfuser -A $USER SASL $SASL_USER
 sh ./edconf.sh oauth2 > /dev/null
 sh ./check.sh
 if $REGRESS; then
+	[ X$PASS = X ] && PASS=$(cat $PASSF)
 	[ X$PASS = X ] || run_jwt_agent $PASS c2
 	for h in c6 c7 c8; do
 		[ X$PASS = X ] || run_jwt_agent $PASS $h

@@ -20,7 +20,7 @@ RUN dnf -y upgrade almalinux-release \
     fuse fuse-devel libacl-devel \
     procps gdb valgrind \
     myproxy globus-simple-ca \
-    cyrus-sasl-devel scitokens-cpp-devel \
+    cyrus-sasl-devel cyrus-sasl-plain scitokens-cpp-devel \
     golang jq curl attr \
  && dnf config-manager --set-enabled powertools \
  && dnf -y install pandoc
@@ -44,7 +44,9 @@ RUN \
 RUN useradd -m -u $UID -s /bin/bash $USERNAME \
  && echo "$USERNAME ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers.d/$USERNAME \
  # delete passwd
- && passwd -d $USERNAME
+ && passwd -d $USERNAME \
+ # Workaround for "sudo: PAM account management error: Authentication service cannot retrieve authentication info"
+ && chmod u+r /etc/shadow
 
 RUN useradd -m _gfarmfs \
  && useradd -m _gfarmmd
