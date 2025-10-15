@@ -56,6 +56,8 @@ struct gfarm_metadb_server *gfm_client_connection_get_real_server(
 	struct gfm_connection *);
 int gfm_client_connection_failover_count(struct gfm_connection *);
 
+int gfm_client_process_equal(struct gfm_connection *,
+	gfarm_int32_t, const char *, size_t, gfarm_pid_t);
 gfarm_error_t gfm_client_process_get(struct gfm_connection *,
 	gfarm_int32_t *, const char **, size_t *, gfarm_pid_t *);
 gfarm_error_t gfm_client_process_is_set(struct gfm_connection *);
@@ -545,6 +547,9 @@ gfarm_error_t gfm_client_process_alloc_child(struct gfm_connection *,
 	gfarm_int32_t, const char *, size_t, gfarm_pid_t *);
 
 gfarm_error_t gfm_client_process_free(struct gfm_connection *);
+gfarm_error_t gfm_client_process_set_request(struct gfm_connection *,
+	gfarm_int32_t, const char *, size_t, gfarm_pid_t);
+gfarm_error_t gfm_client_process_set_result(struct gfm_connection *);
 gfarm_error_t gfm_client_process_set(struct gfm_connection *,
 	gfarm_int32_t, const char *, size_t, gfarm_pid_t);
 

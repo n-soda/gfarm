@@ -52,6 +52,7 @@
 #include "auth.h"
 #include "config.h"
 #include "conn_cache.h"
+#include "gfm_proto.h"
 #include "gfs_proto.h"
 #define GFARM_USE_OPENSSL
 #include "gfs_client.h"
@@ -78,7 +79,10 @@ struct gfs_connection {
 	enum gfarm_auth_method auth_method;
 
 	int is_local;
-	gfarm_pid_t pid; /* parallel process ID */
+
+	/* parallel process signatures */
+	gfarm_pid_t pid;
+	char pid_key[GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET];
 
 	int opened; /* reference counter */
 
@@ -850,7 +854,7 @@ gfs_client_gfmd_failover_at_connect(
 }
 
 static gfarm_error_t
-gfs_client_check_failovercount_or_reset_process(
+gfs_client_check_process_identity_or_reset(
 	struct gfs_connection *gfs_server, struct gfm_connection *gfm_server)
 {
 	gfarm_error_t e;
@@ -858,12 +862,24 @@ gfs_client_check_failovercount_or_reset_process(
 		gfm_server);
 	int fc = gfarm_filesystem_failover_count(fs);
 	int old_fc = gfs_server->failover_count;
+	gfarm_int32_t new_keytype;
+	const char *new_key;
+	size_t new_key_size;
+	gfarm_pid_t new_pid;
 
-	if (old_fc == fc)
+	e = gfm_client_process_get(gfm_server,
+	    &new_keytype, &new_key, &new_key_size, &new_pid);
+	assert(e == GFARM_ERR_NO_ERROR);
+	assert(new_keytype == GFM_PROTO_PROCESS_KEY_TYPE_SHAREDSECRET
+	    && new_key_size == GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET);
+	if (gfs_server->pid == new_pid &&
+	    memcmp(gfs_server->pid_key, new_key, new_key_size) == 0)
 		return (GFARM_ERR_NO_ERROR);
-	gflog_debug(GFARM_MSG_1003900,
-	    "detected gfmd connection failover before acquring "
-	    "gfsd connection");
+
+	gflog_debug(GFARM_MSG_UNFIXED,
+	    "detected gfmd connection failover from GPID:%lld to GPID:%lld "
+	    "before acquring gfsd connection",
+	    (long long)gfs_server->pid, (long long)new_pid);
 	/*
 	 * if cached gfs_connection is not related to GFS_File when failover
 	 * occurred, gfs_connection is not failed over.
@@ -926,10 +942,10 @@ gfs_client_connection_and_process_acquire(
 		}
 
 		gfs_client_connection_lock(gfs_server);
-		if (gfs_client_pid(gfs_server) == 0) /* new connection */
+		if (gfs_client_pid(gfs_server) == 0) /* need a new process */
 			e = gfarm_client_process_set(gfs_server, *gfm_serverp);
 		else /* cached connection */
-			e = gfs_client_check_failovercount_or_reset_process(
+			e = gfs_client_check_process_identity_or_reset(
 			    gfs_server, *gfm_serverp);
 		gfs_client_connection_unlock(gfs_server);
 
@@ -1623,15 +1639,21 @@ gfs_client_process_set(struct gfs_connection *gfs_server,
 {
 	gfarm_error_t e;
 
+	assert(type == GFM_PROTO_PROCESS_KEY_TYPE_SHAREDSECRET
+	    && size == GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET);
+
 	gfs_client_connection_lock(gfs_server);
 	e = gfs_client_rpc_wo_lock(gfs_server, 0,
 	    GFS_PROTO_PROCESS_SET, "ibl/", type, size, key, pid);
-	if (e == GFARM_ERR_NO_ERROR)
+	if (e == GFARM_ERR_NO_ERROR) {
 		gfs_server->pid = pid;
-	else
+		memcpy(gfs_server->pid_key, key, size);
+	} else {
+		gfs_server->pid = 0;
 		gflog_debug(GFARM_MSG_1001202,
 			"gfs_client_rpc() failed: %s",
 			gfarm_error_string(e));
+	}
 	gfs_client_connection_unlock(gfs_server);
 	return (e);
 }
@@ -1642,12 +1664,16 @@ gfs_client_process_reset(struct gfs_connection *gfs_server,
 {
 	gfarm_error_t e;
 
+	assert(type == GFM_PROTO_PROCESS_KEY_TYPE_SHAREDSECRET
+	    && size == GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET);
+
 	gfs_client_connection_lock(gfs_server);
 	e = gfs_client_rpc_wo_lock(gfs_server, 0, GFS_PROTO_PROCESS_RESET,
 		"ibli/", type, size, key, pid, gfs_server->failover_count);
-	if (e == GFARM_ERR_NO_ERROR)
+	if (e == GFARM_ERR_NO_ERROR) {
 		gfs_server->pid = pid;
-	else {
+		memcpy(gfs_server->pid_key, key, size);
+	} else {
 		gfs_server->pid = 0;
 		gflog_debug(GFARM_MSG_1003377,
 			"gfs_client_rpc() failed: %s",

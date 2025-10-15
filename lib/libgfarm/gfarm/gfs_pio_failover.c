@@ -178,11 +178,12 @@ gfs_pio_reopen(struct gfarm_filesystem *fs, GFS_File gf)
 
 struct reset_and_reopen_info {
 	struct gfm_connection *gfm_server;
+	gfarm_pid_t pid;
 	int must_retry;
 };
 
 static int
-reset_and_reopen(GFS_File gf, void *closure)
+check_or_reset_and_reopen(GFS_File gf, void *closure)
 {
 	gfarm_error_t e = GFARM_ERR_NO_ERROR;
 	struct reset_and_reopen_info *ri = closure;
@@ -192,6 +193,8 @@ reset_and_reopen(GFS_File gf, void *closure)
 	struct gfarm_filesystem *fs =
 	    gfarm_filesystem_get_by_connection(gfm_server);
 	int fc = gfarm_filesystem_failover_count(fs);
+	int need_reopen;
+	struct gfs_stat st;
 
 	if ((e = gfm_client_connection_acquire(gfm_client_hostname(gfm_server),
 	    gfm_client_port(gfm_server), gfm_client_username(gfm_server),
@@ -211,9 +214,18 @@ reset_and_reopen(GFS_File gf, void *closure)
 		return (0);
 	}
 
-	/* if old gfm_connection is alive, fd must be closed */
-	(void)gfm_close_fd(gf->gfm_server, gf->fd, NULL, NULL);
-	gf->fd = -1;
+	if (ri->pid != 0 && gf->fd != -1 &&
+	    gfs_fstat_without_failover(gfm_server, gf->fd, &st)
+	    == GFARM_ERR_NO_ERROR &&
+	    GFARM_S_ISREG(st.st_mode) && st.st_ino == gf->fd) {
+		/* XXX should check st_igen as well? */
+		need_reopen = 0;
+	} else {
+		need_reopen = 1;
+		/* if old gfm_connection is alive, fd must be closed */
+		(void)gfm_close_fd(gf->gfm_server, gf->fd, NULL, NULL);
+		gf->fd = -1;
+	}
 	gfm_client_connection_free(gf->gfm_server);
 	/* ref count of gfm_server is incremented above */
 	gf->gfm_server = gfm_server;
@@ -232,7 +244,8 @@ reset_and_reopen(GFS_File gf, void *closure)
 		}
 
 		/* reset pid */
-		if (fc > gfs_client_connection_failover_count(sc)) {
+		if (ri->pid == 0 &&
+		    fc > gfs_client_connection_failover_count(sc)) {
 			gfs_client_connection_set_failover_count(sc, fc);
 			/*
 			 * gfs_file just in scheduling is not related to
@@ -254,8 +267,9 @@ reset_and_reopen(GFS_File gf, void *closure)
 		}
 	}
 
-	/* reopen file */
-	if (gfs_pio_error_unlocked(gf) != GFARM_ERR_STALE_FILE_HANDLE &&
+	/* reopen file? */
+	if (need_reopen &&
+	    gfs_pio_error_unlocked(gf) != GFARM_ERR_STALE_FILE_HANDLE &&
 	    (e = gfs_pio_reopen(fs, gf)) != GFARM_ERR_NO_ERROR) {
 		gflog_debug(GFARM_MSG_1003387,
 		    "gfs_pio_reopen: %s", gfarm_error_string(e));
@@ -265,15 +279,16 @@ reset_and_reopen(GFS_File gf, void *closure)
 }
 
 static int
-reset_and_reopen_all(struct gfm_connection *gfm_server,
-	struct gfs_file_list *gfl)
+check_or_reset_and_reopen_all(struct gfm_connection *gfm_server,
+	struct gfs_file_list *gfl, gfarm_pid_t pid)
 {
 	struct reset_and_reopen_info ri;
 
 	ri.gfm_server = gfm_server;
+	ri.pid = pid;
 	ri.must_retry = 0;
 
-	gfs_pio_file_list_foreach(gfl, reset_and_reopen, &ri);
+	gfs_pio_file_list_foreach(gfl, check_or_reset_and_reopen, &ri);
 
 	return (ri.must_retry == 0);
 }
@@ -325,16 +340,18 @@ failover0(struct gfm_connection *gfm_server, const char *host0, int port,
 	char *host = NULL, *user = NULL;
 	int fc, i, ok = 0;
 
+	int old_process_exist;
+	gfarm_int32_t old_keytype;
+	char old_key[GFM_PROTO_PROCESS_KEY_LEN_MAX];
+	size_t old_key_size;
+	gfarm_pid_t old_pid;
+
 	if (gfm_server) {
 		fs = gfarm_filesystem_get_by_connection(gfm_server);
-		if (gfarm_filesystem_in_failover_process(fs)) {
-			e = GFARM_ERR_OPERATION_NOT_PERMITTED;
-			gflog_debug(GFARM_MSG_1003964,
-			    "gfmd connection failover process called "
-			    "recursively");
-			goto error_all;
-		}
-		gfarm_filesystem_set_in_failover_process(fs, 1);
+		gfarm_filesystem_failover_begin(fs);
+		old_process_exist = gfarm_filesystem_process_get(fs,
+		    sizeof old_key, &old_keytype, old_key, &old_key_size,
+		    &old_pid);
 		fc = gfarm_filesystem_failover_count(fs);
 		if ((host = strdup(gfm_client_hostname(gfm_server))) ==  NULL) {
 			e = GFARM_ERR_NO_MEMORY;
@@ -360,14 +377,10 @@ failover0(struct gfm_connection *gfm_server, const char *host0, int port,
 	} else {
 		fs = gfarm_filesystem_get(host0, port);
 		assert(fs != NULL);
-		if (gfarm_filesystem_in_failover_process(fs)) {
-			e = GFARM_ERR_OPERATION_NOT_PERMITTED;
-			gflog_debug(GFARM_MSG_1003965,
-			    "gfmd connection failover process called "
-			    "recursively");
-			goto error_all;
-		}
-		gfarm_filesystem_set_in_failover_process(fs, 1);
+		gfarm_filesystem_failover_begin(fs);
+		old_process_exist = gfarm_filesystem_process_get(fs,
+		    sizeof old_key, &old_keytype, old_key, &old_key_size,
+		    &old_pid);
 		fc = gfarm_filesystem_failover_count(fs);
 		if ((host = strdup(host0)) ==  NULL) {
 			e = GFARM_ERR_NO_MEMORY;
@@ -390,7 +403,7 @@ failover0(struct gfm_connection *gfm_server, const char *host0, int port,
 	 * and we use failover_count to indicate whether or not the acquired
 	 * connection is new connection.
 	 */
-	gfarm_filesystem_set_failover_count(fs, fc + 1);
+	gfarm_filesystem_failover_count_increment(fs);
 
 	for (i = 0; i < NUM_FAILOVER_RETRY; ++i) {
 		/* reconnect to gfmd */
@@ -425,7 +438,11 @@ failover0(struct gfm_connection *gfm_server, const char *host0, int port,
 		 * close fd, release gfm_connection and set invalid fd,
 		 * reset processes and reopen files
 		*/
-		ok = reset_and_reopen_all(gfm_server, gfl);
+		ok = check_or_reset_and_reopen_all(gfm_server, gfl,
+		    old_process_exist &&
+		    gfm_client_process_equal(gfm_server,
+		    old_keytype, old_key, old_key_size, old_pid) ?
+		    old_pid : 0);
 		gfm_client_connection_free(gfm_server);
 		if (ok)
 			break;
@@ -446,7 +463,7 @@ failover0(struct gfm_connection *gfm_server, const char *host0, int port,
 end:
 	free(host);
 	free(user);
-	gfarm_filesystem_set_in_failover_process(fs, 0);
+	gfarm_filesystem_failover_end(fs);
 
 	return (e);
 
@@ -457,7 +474,7 @@ error_all:
 
 	if (gfl != NULL)
 		gfs_pio_file_list_foreach(gfl, set_error, &e);
-	gfarm_filesystem_set_in_failover_process(fs, 0);
+	gfarm_filesystem_failover_end(fs);
 
 	return (e);
 }

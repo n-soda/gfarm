@@ -182,6 +182,37 @@ gfs_fstat(GFS_File gf, struct gfs_stat *s)
 	return (e);
 }
 
+/* internal use only (for failover processing) */
+gfarm_error_t
+gfs_fstat_without_failover(struct gfm_connection *gfm_server, int fd,
+	struct gfs_stat *s)
+{
+	gfarm_timerval_t t1, t2;
+	struct gfm_stat_closure closure;
+	gfarm_error_t e;
+
+	GFARM_KERNEL_UNUSE2(t1, t2);
+	GFARM_TIMEVAL_FIX_INITIALIZE_WARNING(t1);
+	gfs_profile(gfarm_gettimerval(&t1));
+
+	closure.st = s;
+
+	e = gfm_client_compound_fd_op(gfm_server, fd,
+	    gfm_stat_request, gfm_stat_result, NULL, &closure);
+
+	gfs_profile(gfarm_gettimerval(&t2));
+	gfs_profile(staticp->stat_time += gfarm_timerval_sub(&t2, &t1));
+	gfs_profile(staticp->stat_count++);
+
+	if (e != GFARM_ERR_NO_ERROR) {
+		gflog_debug(GFARM_MSG_1003976,
+		    "gfm_client_compound_file_op_readonly() failed: %s",
+		    gfarm_error_string(e));
+	}
+
+	return (e);
+}
+
 struct gfm_stat_cksum_closure {
 	struct gfs_stat_cksum *st;
 };

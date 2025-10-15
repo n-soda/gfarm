@@ -11,6 +11,7 @@
 #include "context.h"
 #include "filesystem.h"
 #include "metadb_server.h"
+#include "gfm_proto.h"
 #include "gfm_client.h"
 #include "gfs_file_list.h"
 
@@ -30,6 +31,9 @@ struct gfarm_filesystem {
 	 */
 	struct gfs_file_list *file_list;
 
+	gfarm_pid_t pid;
+	char process_key[GFM_PROTO_PROCESS_KEY_LEN_MAX];
+
 	/*
 	 * detected failover but not yet recovered.
 	 *
@@ -40,8 +44,8 @@ struct gfarm_filesystem {
 
 	int failover_count;
 
-	/* if gfm_connection of this filesystem is in failover process or not */
-	int in_failover_process;
+	/* locked during failover process of this filesystem */
+	pthread_mutex_t failover_mutex;
 
 	pthread_mutex_t mutex;
 };
@@ -61,6 +65,8 @@ struct gfarm_filesystem_static {
 #define MS2FS_HASHTAB_SIZE 17
 
 static const char mutex_what[] = "struct gfarm_filesystem:mutex";
+static const char failover_mutex_what[] =
+    "struct gfarm_filesystem:failover_mutex";
 
 static void gfarm_filesystem_free(struct gfarm_filesystem *);
 
@@ -162,10 +168,11 @@ gfarm_filesystem_new(struct gfarm_filesystem **fsp)
 	fs->nservers = 0;
 	fs->flags = 0;
 	fs->file_list = gfl;
+	fs->pid = 0; /* i.e. no process */
 	fs->failover_detected = 0;
 	fs->failover_count = 0;
-	fs->in_failover_process = 0;
 
+	gfarm_mutex_init(&fs->failover_mutex, diag, failover_mutex_what);
 	gfarm_mutex_init(&fs->mutex, diag, mutex_what);
 
 	staticp->filesystems.next = fs;
@@ -312,6 +319,48 @@ gfarm_filesystem_lock(struct gfarm_filesystem *fs, const char *diag)
 void gfarm_filesystem_unlock(struct gfarm_filesystem *fs, const char *diag)
 {
 	gfarm_mutex_unlock(&fs->mutex, diag, mutex_what);
+}
+
+void
+gfarm_filesystem_process_set(struct gfarm_filesystem *fs,
+	gfarm_int32_t keytype, const char *sharedkey, size_t sharedkey_size,
+	gfarm_pid_t pid)
+{
+	const char diag[] = "gfarm_filesystem_process_set";
+
+	/* only GFM_PROTO_PROCESS_KEY_TYPE_SHAREDSECRET is supported */
+	assert(keytype == GFM_PROTO_PROCESS_KEY_TYPE_SHAREDSECRET &&
+	    sharedkey_size == GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET);
+
+	gfarm_filesystem_lock(fs, diag);
+	memcpy(fs->process_key, sharedkey, sharedkey_size);
+	fs->pid = pid;
+	gfarm_filesystem_unlock(fs, diag);
+}
+
+int
+gfarm_filesystem_process_get(struct gfarm_filesystem *fs,
+	size_t sharedkey_maxsize,
+	gfarm_int32_t *keytypep, char *sharedkey, size_t *sharedkey_sizep,
+	gfarm_pid_t *pidp)
+{
+	gfarm_pid_t pid;
+	const char diag[] = "gfarm_filesystem_process_get";
+
+	assert(sharedkey_maxsize >= GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET);
+
+	gfarm_filesystem_lock(fs, diag);
+	pid = fs->pid;
+	if (pid != 0) {
+		*keytypep = GFM_PROTO_PROCESS_KEY_TYPE_SHAREDSECRET;
+		memcpy(sharedkey, fs->process_key,
+		    GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET);
+		*sharedkey_sizep = GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET;
+	}
+	gfarm_filesystem_unlock(fs, diag);
+
+	*pidp = pid;
+	return (pid != 0);
 }
 
 static gfarm_error_t
@@ -478,36 +527,86 @@ gfarm_filesystem_opened_file_list(struct gfarm_filesystem *fs)
 int
 gfarm_filesystem_failover_detected(struct gfarm_filesystem *fs)
 {
-	return (fs != NULL ? fs->failover_detected : 0);
+	int detected;
+	const char diag[] = "gfarm_filesystem_failover_detected";
+
+	if (fs == NULL)
+		return (0);
+
+	gfarm_filesystem_lock(fs, diag);
+	detected = fs->failover_detected;
+	gfarm_filesystem_unlock(fs, diag);
+	return (detected);
 }
 
 void
 gfarm_filesystem_set_failover_detected(struct gfarm_filesystem *fs,
 	int detected)
 {
+	const char diag[] = "gfarm_filesystem_set_failover_detected";
+
+	gfarm_filesystem_lock(fs, diag);
 	fs->failover_detected = detected;
+	gfarm_filesystem_unlock(fs, diag);
 }
 
 int
 gfarm_filesystem_failover_count(struct gfarm_filesystem *fs)
 {
-	return (fs != NULL ? fs->failover_count : 0);
+	int fc;
+	const char diag[] = "gfarm_filesystem_failover_count";
+
+	if (fs == NULL)
+		return (0);
+
+	gfarm_filesystem_lock(fs, diag);
+	fc = fs->failover_count;
+	gfarm_filesystem_unlock(fs, diag);
+	return (fc);
 }
 
 void
-gfarm_filesystem_set_failover_count(struct gfarm_filesystem *fs, int count)
+gfarm_filesystem_failover_count_increment(struct gfarm_filesystem *fs)
 {
-	fs->failover_count = count;
+	const char diag[] = "gfarm_filesystem_failover_count_increment";
+
+	gfarm_filesystem_lock(fs, diag);
+	++fs->failover_count;
+	gfarm_filesystem_unlock(fs, diag);
 }
 
 int
 gfarm_filesystem_in_failover_process(struct gfarm_filesystem *fs)
 {
-	return (fs != NULL ? fs->in_failover_process : 0);
+	static const char diag[] = "gfarm_filesystem_in_failover_process";
+
+	if (fs == NULL)
+		return (0);
+
+
+	if (gfarm_mutex_trylock(&fs->failover_mutex,
+	    diag, failover_mutex_what)) {
+		gfarm_mutex_unlock(&fs->failover_mutex,
+		    diag, failover_mutex_what);
+		/* XXX possibly the caller of this function has race? */
+		return (0);
+	} else {
+		return (1);
+	}
 }
 
 void
-gfarm_filesystem_set_in_failover_process(struct gfarm_filesystem *fs, int b)
+gfarm_filesystem_failover_begin(struct gfarm_filesystem *fs)
 {
-	fs->in_failover_process = b;
+	static const char diag[] = "gfarm_filesystem_failover_begin";
+
+	gfarm_mutex_lock(&fs->failover_mutex, diag, failover_mutex_what);
+}
+
+void
+gfarm_filesystem_failover_end(struct gfarm_filesystem *fs)
+{
+	static const char diag[] = "gfarm_filesystem_failover_end";
+
+	gfarm_mutex_unlock(&fs->failover_mutex, diag, failover_mutex_what);
 }

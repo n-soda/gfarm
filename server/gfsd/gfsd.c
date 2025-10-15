@@ -261,6 +261,33 @@ static void close_all_fd(struct gfp_xdr *);
 static int close_all_fd_for_process_reset(struct gfp_xdr *);
 static struct gfp_xdr *current_client = NULL;
 
+static gfarm_pid_t current_pid = 0;
+static gfarm_int32_t current_keytype;
+static size_t current_sharedkey_size;
+static char current_sharedkey[GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET];
+
+void
+process_record(gfarm_pid_t pid, gfarm_int32_t keytype,
+	size_t keylen, char *sharedkey)
+{
+	assert(keylen <= sizeof(current_sharedkey));
+
+	current_pid = pid;
+	current_keytype = keytype;
+	current_sharedkey_size = keylen;
+	memcpy(current_sharedkey, sharedkey, keylen);
+}
+
+int
+process_is(gfarm_pid_t pid, gfarm_int32_t keytype,
+	size_t keylen, char *sharedkey)
+{
+	return (pid == current_pid &&
+	    keytype == current_keytype &&
+	    keylen == current_sharedkey_size &&
+	    memcmp(sharedkey, current_sharedkey, keylen) == 0);
+}
+
 /* this routine should be called before calling exit(). */
 void
 cleanup(int sighandler)
@@ -889,6 +916,21 @@ reconnect_gfm_server_for_failover(const char *diag)
 		    "%s: cannot reconnect to gfm server: %s",
 		    diag, gfarm_error_string(e));
 	}
+
+	if (current_pid != 0) {
+		if ((e = gfm_client_process_set(gfm_server,
+		    current_keytype, current_sharedkey, current_sharedkey_size,
+		    current_pid)) == GFARM_ERR_NO_ERROR) {
+			gflog_info(GFARM_MSG_UNFIXED, "GPID:%lld reconnected",
+			     (long long)current_pid);
+
+			return; /* keep fd_usable_to_gfmd as is */
+		}
+		gflog_info(GFARM_MSG_UNFIXED,
+		    "GPID:%lld disappeared: %s",
+		     (long long)current_pid, gfarm_error_string(e));
+	}
+
 	fd_usable_to_gfmd = 0;
 }
 
@@ -1333,17 +1375,29 @@ gfs_server_process_set(struct gfp_xdr *client)
 	 * close_all_fd_for_process_reset().
 	 */
 
-	if (gfm_client_process_is_set(gfm_server)) {
-		gflog_debug(GFARM_MSG_1003399,
-		    "process is already set");
+	if (keylen > sizeof(sharedkey)) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "%s: too long process key length %zd (must be <= %zd), "
+		    "client version is newer than gfsd?",
+		    diag, keylen, sizeof(sharedkey));
 		e = GFARM_ERR_INVALID_ARGUMENT;
+	} else if (gfm_client_process_is_set(gfm_server)) {
+		if (process_is(pid, keytype, keylen, sharedkey)) {
+			e = GFARM_ERR_NO_ERROR;
+		} else {
+			gflog_debug(GFARM_MSG_1003399,
+			    "process is already set");
+			e = GFARM_ERR_INVALID_ARGUMENT;
+		}
 	} else if ((e = gfm_client_process_set(gfm_server,
-	    keytype, sharedkey, keylen, pid)) != GFARM_ERR_NO_ERROR)
+	    keytype, sharedkey, keylen, pid)) != GFARM_ERR_NO_ERROR) {
 		gflog_debug(GFARM_MSG_1003400,
 		    "gfm_client_process_set: %s", gfarm_error_string(e));
-	else
+	} else {
+		process_record(pid, keytype, keylen, sharedkey);
 		(void)gfarm_proctitle_set("client/%lld %s",
 		    (long long)pid, gflog_get_auxiliary_info());
+	}
 
 	gfs_server_put_reply(client, diag, e, "");
 }
@@ -1364,48 +1418,58 @@ gfs_server_process_reset(struct gfp_xdr *client)
 	    &failover_count);
 	client_failover_count = failover_count;
 
-	/*
-	 * close all fd before client gets new fd from gfmd.
-	 * if gfmd failed over, gfsd detects it in
-	 * close_all_fd_for_process_reset().
-	 */
-	failedover = close_all_fd_for_process_reset(client);
+	if (keylen > sizeof(sharedkey)) {
+		gflog_error(GFARM_MSG_UNFIXED,
+		    "%s: too long process key length %zd (must be <= %zd), "
+		    "client version is newer than gfsd?",
+		    diag, keylen, sizeof(sharedkey));
+		e = GFARM_ERR_INVALID_ARGUMENT;
+	} else if (process_is(pid, keytype, keylen, sharedkey)) {
+		e = GFARM_ERR_NO_ERROR;
+	} else {
+		/*
+		 * close all fd before client gets new fd from gfmd.
+		 * if gfmd failed over, gfsd detects it in
+		 * close_all_fd_for_process_reset().
+		 */
+		failedover = close_all_fd_for_process_reset(client);
 
-	for (i = 0; i < 2; ++i) {
-		e = gfm_client_process_set(gfm_server, keytype, sharedkey,
-		    keylen, pid);
-		if (e == GFARM_ERR_NO_ERROR) {
-			fd_usable_to_gfmd = 1;
-			(void)gfarm_proctitle_set("client/%lld %s",
-			    (long long)pid, gflog_get_auxiliary_info());
-			break;
-		}
-		if (e == GFARM_ERR_ALREADY_EXISTS) {
-			if ((e = gfm_client_process_free(gfm_server))
-			    != GFARM_ERR_NO_ERROR) {
-				gflog_error(GFARM_MSG_1004113,
-				    "gfm_client_process_free: %s",
-				    gfarm_error_string(e));
+		for (i = 0; i < 2; ++i) {
+			e = gfm_client_process_set(gfm_server, keytype, sharedkey,
+			    keylen, pid);
+			if (e == GFARM_ERR_NO_ERROR) {
+				fd_usable_to_gfmd = 1;
+				(void)gfarm_proctitle_set("client/%lld %s",
+				    (long long)pid, gflog_get_auxiliary_info());
+				break;
 			}
-			continue;
+			if (e == GFARM_ERR_ALREADY_EXISTS) {
+				if ((e = gfm_client_process_free(gfm_server))
+				    != GFARM_ERR_NO_ERROR) {
+					gflog_error(GFARM_MSG_1004113,
+					    "gfm_client_process_free: %s",
+					    gfarm_error_string(e));
+				}
+				continue;
+			}
+			gflog_notice(GFARM_MSG_1003401,
+			    "gfm_client_process_set: %s", gfarm_error_string(e));
+			if (!IS_CONNECTION_ERROR(e))
+				break;
+			/* gfmd failed over after close_all_fd() */
+			if (i == 0) {
+				reconnect_gfm_server_for_failover(diag);
+				failedover = 1;
+			}
 		}
-		gflog_notice(GFARM_MSG_1003401,
-		    "gfm_client_process_set: %s", gfarm_error_string(e));
-		if (!IS_CONNECTION_ERROR(e))
-			break;
-		/* gfmd failed over after close_all_fd() */
-		if (i == 0) {
-			reconnect_gfm_server_for_failover(diag);
-			failedover = 1;
-		}
-	}
 #if 0 /* currently, no need to tell the failedover flag to the client */
-	if (failedover && e == GFARM_ERR_NO_ERROR)
-		e = some other code, instead of GFARM_ERR_GFMD_FAILED_OVER;
+		if (failedover && e == GFARM_ERR_NO_ERROR)
+			e = some other code,
+			    instead of GFARM_ERR_GFMD_FAILED_OVER;
 #else
-	(void)failedover;
+		(void)failedover;
 #endif
-
+	}
 	gfs_server_put_reply(client, diag, e, "");
 }
 
@@ -2378,7 +2442,8 @@ gfs_server_reopen(const char *diag, struct gfp_xdr *client,
 
 	if (IS_CONNECTION_ERROR(e)) {
 		reconnect_gfm_server_for_failover("gfs_server_reopen");
-		e = GFARM_ERR_GFMD_FAILED_OVER;
+		if (!fd_usable_to_gfmd)
+			e = GFARM_ERR_GFMD_FAILED_OVER;
 	}
 
 	return (e);
@@ -2440,7 +2505,8 @@ close_on_metadb_server(struct gfp_xdr *client, gfarm_int32_t fd,
 
 	if (IS_CONNECTION_ERROR(e)) {
 		reconnect_gfm_server_for_failover("close_on_metadb_server");
-		e = GFARM_ERR_GFMD_FAILED_OVER;
+		if (!fd_usable_to_gfmd)
+			e = GFARM_ERR_GFMD_FAILED_OVER;
 	}
 
 	return (e);
@@ -3321,7 +3387,7 @@ close_fd_somehow(struct gfp_xdr *client,
 	e2 = file_table_close(fd);
 	if (e2 == GFARM_ERR_NO_ERROR)
 		e2 = e3;
-	e = failedover ? GFARM_ERR_GFMD_FAILED_OVER :
+	e = failedover && !fd_usable_to_gfmd ? GFARM_ERR_GFMD_FAILED_OVER :
 	    (e == GFARM_ERR_NO_ERROR ? e2 : e);
 
 	return (e);
@@ -4071,7 +4137,8 @@ replica_adding(struct gfp_xdr *client, gfarm_int32_t net_fd, char *src_host,
 
 	if (IS_CONNECTION_ERROR(e)) {
 		reconnect_gfm_server_for_failover("replica_adding");
-		e = GFARM_ERR_GFMD_FAILED_OVER;
+		if (!fd_usable_to_gfmd)
+			e = GFARM_ERR_GFMD_FAILED_OVER;
 	}
 	return (e);
 }
@@ -4117,7 +4184,8 @@ replica_added(struct gfp_xdr *client, gfarm_int32_t net_fd,
 
 	if (IS_CONNECTION_ERROR(e)) {
 		reconnect_gfm_server_for_failover("replica_added");
-		e = GFARM_ERR_GFMD_FAILED_OVER;
+		if (!fd_usable_to_gfmd)
+			e = GFARM_ERR_GFMD_FAILED_OVER;
 	}
 	return (e);
 }

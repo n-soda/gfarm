@@ -13,6 +13,10 @@ struct gfarm_filesystem *gfarm_filesystem_get_by_connection(
 	struct gfm_connection *);
 void gfarm_filesystem_lock(struct gfarm_filesystem *, const char *);
 void gfarm_filesystem_unlock(struct gfarm_filesystem *, const char *);
+void gfarm_filesystem_process_set(struct gfarm_filesystem *,
+	gfarm_int32_t, const char *, size_t, gfarm_pid_t pid);
+int gfarm_filesystem_process_get(struct gfarm_filesystem *,
+	size_t,	gfarm_int32_t *, char *, size_t *, gfarm_pid_t *);
 gfarm_error_t gfarm_filesystem_set_metadb_server_list(
 	struct gfarm_filesystem *,
 	struct gfarm_metadb_server **, int);
@@ -29,6 +33,7 @@ struct gfs_file_list *gfarm_filesystem_opened_file_list(
 int gfarm_filesystem_failover_detected(struct gfarm_filesystem *);
 void gfarm_filesystem_set_failover_detected(struct gfarm_filesystem *, int);
 int gfarm_filesystem_failover_count(struct gfarm_filesystem *);
-void gfarm_filesystem_set_failover_count(struct gfarm_filesystem *, int);
+void gfarm_filesystem_failover_count_increment(struct gfarm_filesystem *);
 int gfarm_filesystem_in_failover_process(struct gfarm_filesystem *);
-void gfarm_filesystem_set_in_failover_process(struct gfarm_filesystem *, int);
+void gfarm_filesystem_failover_begin(struct gfarm_filesystem *);
+void gfarm_filesystem_failover_end(struct gfarm_filesystem *);
