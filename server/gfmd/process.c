@@ -176,16 +176,6 @@ process_alloc0(struct user *user,
 	gfarm_int32_t pid32;
 	struct inode *root_inode;
 
-	if (process_id_table == NULL) {
-		process_id_table = gfarm_id_table_alloc(&process_id_table_ops);
-		if (process_id_table == NULL)
-			gflog_fatal(GFARM_MSG_1000293,
-			    "allocating pid table: no memory");
-		gfarm_id_table_set_base(process_id_table, PROCESS_ID_MIN);
-		gfarm_id_table_set_initial_size(process_id_table,
-		    PROCESS_TABLE_INITIAL_SIZE);
-	}
-
 	if (keytype != GFM_PROTO_PROCESS_KEY_TYPE_SHAREDSECRET ||
 	    keylen != GFM_PROTO_PROCESS_KEY_LEN_SHAREDSECRET) {
 		gflog_debug(GFARM_MSG_1001594,
@@ -3077,6 +3067,14 @@ void
 process_init(void)
 {
 	gfarm_error_t e;
+
+	process_id_table = gfarm_id_table_alloc(&process_id_table_ops);
+	if (process_id_table == NULL)
+		gflog_fatal(GFARM_MSG_1000293,
+		    "allocating pid table: no memory");
+	gfarm_id_table_set_base(process_id_table, PROCESS_ID_MIN);
+	gfarm_id_table_set_initial_size(process_id_table,
+	    PROCESS_TABLE_INITIAL_SIZE);
 
 	e = db_process_load(NULL, process_add_one);
 	if (e != GFARM_ERR_NO_ERROR)
