@@ -145,6 +145,7 @@ void
 file_opening_free(struct file_opening *fo, gfarm_mode_t mode)
 {
 	if (GFARM_S_ISREG(mode)) {
+		/* fo->u.f.replica_source must be NULL in slave */
 		if (fo->u.f.replica_source != NULL) {
 			gflog_debug(GFARM_MSG_1002236,
 			    "file replication (%lld:%lld) to %s is canceled",
@@ -262,18 +263,18 @@ process_add_ref(struct process *process)
 }
 
 static gfarm_error_t process_close_or_abort_file(struct process *,
-	struct peer *, int, int, char **, int, const char *);
+	struct peer *, int, int, int, int, char **, const char *);
 
 /*
  * NOTE:
  * - caller of this function should acquire giant_lock as well
- * - peer may be NULL for gfmd slaves or after failover
+ * - peer may be NULL for gfmd slaves
  */
 static int
 process_del_ref(struct process *process, struct peer *peer, int from_client)
 {
 	gfarm_error_t e;
-	int fd;
+	int fd, in_slave = peer == NULL;
 	gfarm_mode_t mode;
 	struct file_opening *fo;
 	struct process_link *pl, *pln;
@@ -285,7 +286,8 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 		if (fo != NULL) {
 			mode = inode_get_mode(fo->inode);
 			process_close_or_abort_file(
-			    process, peer, from_client, fd, NULL, 1, diag);
+			    process, peer, from_client, fd, 1, in_slave, NULL,
+			    diag);
 		}
 	}
 
@@ -314,7 +316,7 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 			    peer_get_hostname(fo->u.f.spool_opener),
 			    (fo->flag & GFARM_FILE_GFSD_ACCESS_REVOKED) != 0 ?
 			    "" : " not");
-			inode_close_read(fo, NULL, NULL, diag);
+			inode_close_read(fo, NULL, in_slave, NULL, diag);
 			file_opening_free(fo, mode);
 		}
 	}
@@ -889,7 +891,7 @@ process_new_generation_done(struct process *process, struct peer *peer, int fd,
 			fo->u.f.spool_host = NULL;
 		} else {
 			mode = inode_get_mode(fo->inode);
-			inode_close(fo, NULL, diag);
+			inode_close(fo, 0, NULL, diag);
 
 			file_opening_free(fo, mode);
 			process->filetab[fd] = NULL;
@@ -1030,7 +1032,7 @@ process_new_generation_by_cookie_finish(struct inode *inode,
 			} else {
 				process_close_or_abort_file(
 				    closure.target_process, peer, 0,
-				    closure.target_fd, NULL, 1, diag);
+				    closure.target_fd, 1, 0, NULL, diag);
 			}
 		} else if (closure.n_found > 1) {
 			gflog_warning(GFARM_MSG_UNFIXED,
@@ -1386,8 +1388,8 @@ process_getgen(struct process *process, struct peer *peer, int fd,
 /* peer may be NULL for gfmd slaves or after failover */
 static gfarm_error_t
 process_close_or_abort_file(struct process *process,
-	struct peer *peer, int from_client, int fd,
-	char **trace_logp, int aborted, const char *diag)
+	struct peer *peer, int from_client, int fd, int aborted, int in_slave,
+	char **trace_logp, const char *diag)
 {
 	struct file_opening *fo;
 	gfarm_mode_t mode;
@@ -1434,11 +1436,12 @@ process_close_or_abort_file(struct process *process,
 				inode_del_ref_spool_writers(fo->inode);
 
 				/* the following must be NOP in slave */
+				if (!in_slave) {
+					inode_check_pending_replication(fo);
 
-				inode_check_pending_replication(fo);
-
-				(void)process_propagate_spool_closed(
-				    process, fd);
+					(void)process_propagate_spool_closed(
+					    process, fd);
+				}
 			}
 		}
 		if (fo->opener != NULL) {
@@ -1496,7 +1499,7 @@ process_close_or_abort_file(struct process *process,
 		}
 	}
 
-	inode_close(fo, trace_logp, diag);
+	inode_close(fo, in_slave, trace_logp, diag);
 	file_opening_free(fo, mode);
 	process->filetab[fd] = NULL;
 	return (GFARM_ERR_NO_ERROR);
@@ -1507,7 +1510,7 @@ process_close_file(struct process *process, struct peer *peer, int fd,
 	char **trace_logp, const char *diag)
 {
 	return (process_close_or_abort_file(process,
-	    peer, peer_get_host(peer) == NULL, fd, trace_logp, 0, diag));
+	    peer, peer_get_host(peer) == NULL, fd, 0, 0, trace_logp, diag));
 }
 
 gfarm_error_t
@@ -1544,7 +1547,7 @@ process_close_file_read(struct process *process, struct peer *peer, int fd,
 		return (GFARM_ERR_NO_ERROR);
 	}
 
-	inode_close_read(fo, atime, NULL, diag);
+	inode_close_read(fo, atime, 0, NULL, diag);
 	file_opening_free(fo, mode);
 	process->filetab[fd] = NULL;
 	return (GFARM_ERR_NO_ERROR);
@@ -1643,7 +1646,7 @@ process_close_file_write(struct process *process, struct peer *peer, int fd,
 		fo->u.f.spool_opener = NULL;
 		fo->u.f.spool_host = NULL;
 	} else {
-		inode_close(fo, NULL, diag);
+		inode_close(fo, 0, NULL, diag);
 
 		file_opening_free(fo, mode);
 		process->filetab[fd] = NULL;
@@ -1776,7 +1779,7 @@ process_spool_closed_in_slave(gfarm_pid_t pid, int fd)
 		return (GFARM_ERR_NO_SUCH_PROCESS);
 	}
 	return (process_close_or_abort_file(
-	    process, NULL, 0, fd, NULL, 0, diag));
+	    process, NULL, 0, fd, 0, 1, NULL, diag));
 }
 
 gfarm_error_t
@@ -2718,7 +2721,8 @@ gfm_server_process_fd_info(struct peer *peer, int from_client, int skip)
 
 
 static int
-process_fd_remove_one(struct process *target_process, int fd, struct host *spool_host)
+process_fd_remove_one(struct process *target_process, int fd,
+	struct host *spool_host)
 {
 	struct file_opening *fo = target_process->filetab[fd];
 
@@ -2729,15 +2733,16 @@ process_fd_remove_one(struct process *target_process, int fd, struct host *spool
 	if (fo->u.f.spool_opener != NULL) /* gfsd still connected */
 		return (0);
 	
-	if (process_close_or_abort_file(target_process, NULL, 0, fd, NULL, 1,
-	    "GFM_PROTO_PROCESS_FD_REMOVE") != GFARM_ERR_NO_ERROR)
+	if (process_close_or_abort_file(target_process, NULL, 0, fd, 1, 0, 
+	    NULL, "GFM_PROTO_PROCESS_FD_REMOVE") != GFARM_ERR_NO_ERROR)
 		return (0);
 
 	return (1);
 }
 
 static int
-process_fd_remove(struct process *target_process, int fd, struct host *spool_host)
+process_fd_remove(struct process *target_process, int fd,
+	struct host *spool_host)
 {
 	if (fd != -1) {
 		if (fd < 0 || fd >= target_process->nfiles)
@@ -2747,7 +2752,8 @@ process_fd_remove(struct process *target_process, int fd, struct host *spool_hos
 		int n = 0;
 
 		for (fd = 0; fd < target_process->nfiles; fd++)
-			n +=  process_fd_remove_one(target_process, fd, spool_host);
+			n +=  process_fd_remove_one(
+			    target_process, fd, spool_host);
 		return (n);
 	}
 }

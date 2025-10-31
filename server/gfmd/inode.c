@@ -4767,7 +4767,7 @@ inode_rename(
 	e = inode_lookup_by_name(ddir, dname, process, &dst);
 	if (e == GFARM_ERR_NO_ERROR) {
 		if (src == dst) {
-			inode_close(fo, NULL, diag);
+			inode_close(fo, 0, NULL, diag);
 			file_opening_free(fo, inode_get_mode(src));
 			return (GFARM_ERR_NO_ERROR);
 		}
@@ -4785,7 +4785,7 @@ inode_rename(
 				gflog_debug(GFARM_MSG_1001747,
 					"inode_unlink() failed: %s",
 					gfarm_error_string(e));
-				inode_close(fo, NULL, diag);
+				inode_close(fo, 0, NULL, diag);
 				file_opening_free(fo, inode_get_mode(src));
 				return (e);
 			} else {
@@ -4795,18 +4795,18 @@ inode_rename(
 			gflog_debug(GFARM_MSG_1001748,
 				"inode 'inode_get_mode(src)' "
 				"is not a directory");
-			inode_close(fo, NULL, diag);
+			inode_close(fo, 0, NULL, diag);
 			file_opening_free(fo, inode_get_mode(src));
 			return (GFARM_ERR_NOT_A_DIRECTORY);
 		} else {
 			gflog_debug(GFARM_MSG_1001749,
 				"inode 'inode_get_mode(src)' is directory");
-			inode_close(fo, NULL, diag);
+			inode_close(fo, 0, NULL, diag);
 			file_opening_free(fo, inode_get_mode(src));
 			return (GFARM_ERR_IS_A_DIRECTORY);
 		}
 	} else if (e != GFARM_ERR_NO_SUCH_FILE_OR_DIRECTORY) {
-		inode_close(fo, NULL, diag);
+		inode_close(fo, 0, NULL, diag);
 		file_opening_free(fo, inode_get_mode(src));
 		return (e);
 	}
@@ -4853,12 +4853,12 @@ inode_rename(
 		gflog_debug(GFARM_MSG_1000319,
 		    "rename(%s, %s): failed to link: %s",
 		    sname, dname, gfarm_error_string(e));
-		inode_close(fo, NULL, diag);
+		inode_close(fo, 0, NULL, diag);
 		file_opening_free(fo, inode_get_mode(src));
 		return (e);
 	}
 
-	inode_close(fo, NULL, diag);
+	inode_close(fo, 0, NULL, diag);
 	file_opening_free(fo, inode_get_mode(src));
 	if (dirquota_adjust) {
 		/*
@@ -5130,14 +5130,15 @@ inode_get_tdirset(struct inode *inode)
 }
 
 void
-inode_close(struct file_opening *fo, char **trace_logp, const char *diag)
+inode_close(struct file_opening *fo, int in_slave,
+	char **trace_logp, const char *diag)
 {
-	inode_close_read(fo, NULL, trace_logp, diag);
+	inode_close_read(fo, NULL, in_slave, trace_logp, diag);
 }
 
 void
 inode_close_read(struct file_opening *fo, struct gfarm_timespec *atime,
-	char **trace_logp, const char *diag)
+	int in_slave, char **trace_logp, const char *diag)
 {
 	struct inode *inode = fo->inode;
 	struct inode_activity *ia = inode->u.c.activity;
@@ -5174,14 +5175,18 @@ inode_close_read(struct file_opening *fo, struct gfarm_timespec *atime,
 				      "not performed due to read_only",
 			    (long long)inode_get_number(inode),
 			    (long long)inode_get_gen(inode));
-		} else {
+		} else if (!in_slave) {
 			inode_file_update(fo, INODE_CLOSE_CLIENT_ONLY, 0,
 			    atime, &inode->i_mtimespec,
 			    NULL, NULL, trace_logp, diag);
 		}
 	} else {
-		/* if read_only, atime update will be ignored */
-		if (atime != NULL && !read_only)
+		/*
+		 * if in_slave, atime will be updated via
+		 * inode_set_atime_in_cache().
+		 * if read_only, atime update will be ignored.
+		 */
+		if (!in_slave && atime != NULL && !read_only)
 			inode_set_relatime(inode, atime);
 	}
 
@@ -5203,7 +5208,8 @@ inode_close_read(struct file_opening *fo, struct gfarm_timespec *atime,
 		inode_activity_free_try(inode);
 	}
 
-	inode_remove_try(inode, tdirset);
+	if (!in_slave)
+		inode_remove_try(inode, tdirset);
 
 	if (tdirset != TDIRSET_IS_UNKNOWN && tdirset != TDIRSET_IS_NOT_SET)
 		dirset_del_ref(tdirset);

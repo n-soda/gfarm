@@ -169,9 +169,9 @@ gfarm_error_t inode_schedule_replication(
 gfarm_error_t inode_open(struct file_opening *, struct dirset *);
 gfarm_error_t inode_open_spool(struct file_opening *);
 struct dirset *inode_get_tdirset(struct inode *);
-void inode_close(struct file_opening *, char **, const char *);
-void inode_close_read(struct file_opening *, struct gfarm_timespec *, char **,
-	const char *);
+void inode_close(struct file_opening *, int, char **, const char *);
+void inode_close_read(struct file_opening *, struct gfarm_timespec *, int,
+	char **, const char *);
 gfarm_error_t inode_fhclose_read(struct inode *, struct gfarm_timespec *);
 void inode_add_ref_spool_writers(struct inode *);
 void inode_del_ref_spool_writers(struct inode *);
