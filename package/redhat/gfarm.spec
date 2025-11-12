@@ -547,6 +547,7 @@ fi
 %{man_prefix}/man7/gfarm_environ.7*
 %{man_prefix}/man8/gfdump.postgresql.8*
 %{man_prefix}/man8/gfmd.8*
+%{man_prefix}/man8/gfrmof.8*
 %{man_prefix}/man8/gfsd.8*
 %{man_prefix}/man8/config-gfarm-update.8*
 %{man_prefix}/man8/config-gfarm.8*
@@ -715,6 +716,7 @@ fi
 %{man_prefix}/ja/man7/gfarm_environ.7*
 %{man_prefix}/ja/man8/gfdump.postgresql.8*
 %{man_prefix}/ja/man8/gfmd.8*
+%{man_prefix}/ja/man8/gfrmof.8*
 %{man_prefix}/ja/man8/gfsd.8*
 %{man_prefix}/ja/man8/config-gfarm-update.8*
 %{man_prefix}/ja/man8/config-gfarm.8*
@@ -906,6 +908,7 @@ fi
 %{html_prefix}/en/ref/man7/gfarm_environ.7.html
 %{html_prefix}/en/ref/man8/gfdump.postgresql.8.html
 %{html_prefix}/en/ref/man8/gfmd.8.html
+%{html_prefix}/en/ref/man8/gfrmof.8.html
 %{html_prefix}/en/ref/man8/gfsd.8.html
 %{html_prefix}/en/ref/man8/config-gfarm-update.8.html
 %{html_prefix}/en/ref/man8/config-gfarm.8.html
@@ -1085,6 +1088,7 @@ fi
 %{html_prefix}/ja/ref/man7/gfarm_environ.7.html
 %{html_prefix}/ja/ref/man8/gfdump.postgresql.8.html
 %{html_prefix}/ja/ref/man8/gfmd.8.html
+%{html_prefix}/ja/ref/man8/gfrmof.8.html
 %{html_prefix}/ja/ref/man8/gfsd.8.html
 %{html_prefix}/ja/ref/man8/config-gfarm-update.8.html
 %{html_prefix}/ja/ref/man8/config-gfarm.8.html
@@ -1277,6 +1281,7 @@ fi
 %{prefix}/bin/gfiops
 %{prefix}/bin/proxy-cert-gen
 %{prefix}/bin/jwt-parse
+%{prefix}/sbin/gfrmof
 %dir %{share_prefix}/config
 %{share_prefix}/config/gfperf-config.yml
 %{share_prefix}/config/gfperf-simple.yml
