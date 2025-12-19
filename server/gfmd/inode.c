@@ -787,7 +787,8 @@ inode_activity_free_try(struct inode *inode)
 	    ia->u.f.event_type == EVENT_NONE &&
 	    ia->u.f.rstate == NULL) {
 		if (ia->u.f.writers != 0 || ia->u.f.spool_writers != 0) {
-			gflog_notice(GFARM_MSG_UNFIXED,
+			/* XXX FIXME: change this from fatal to warning */
+			gflog_fatal(GFARM_MSG_UNFIXED,
 			    "inode_activity_free_try: "
 			    "unexpected behavior in inode(%lld:%lld): "
 			    "writers=%d, spool_writers=%d",
@@ -5085,7 +5086,8 @@ inode_open(struct file_opening *fo, struct dirset *tdirset)
 		 */
 		/* sanity check */
 		if (ia->u.f.writers < 0) {
-			gflog_notice(GFARM_MSG_UNFIXED, "inode_open: "
+			/* XXX FIXME: change this from fatal to warning */
+			gflog_fatal(GFARM_MSG_UNFIXED, "inode_open: "
 			    "unexpected behavior in inode(%lld:%lld): "
 			    "writers=%d, spool_writers=%d",
 			    (long long)inode->i_number,
@@ -5103,6 +5105,7 @@ inode_open(struct file_opening *fo, struct dirset *tdirset)
 	return (inode_open_common(fo, ia));
 }
 
+/* reduced version of inode_open() for slave gfmd */
 gfarm_error_t
 inode_open_spool(struct file_opening *fo)
 {
@@ -5115,6 +5118,23 @@ inode_open_spool(struct file_opening *fo)
 		gflog_debug(GFARM_MSG_UNFIXED,
 			"inode_activity_alloc_or_update() failed");
 		return (GFARM_ERR_NO_MEMORY);
+	}
+	/* the following condition is currently always true */
+	if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0) {
+
+		/* sanity check */
+		if (ia->u.f.writers < 0) {
+			/* XXX FIXME: change this from fatal to warning */
+			gflog_fatal(GFARM_MSG_UNFIXED, "inode_open: "
+			    "unexpected behavior in inode(%lld:%lld): "
+			    "writers=%d, spool_writers=%d",
+			    (long long)inode->i_number,
+			    (long long)inode->i_gen,
+			    ia->u.f.writers, ia->u.f.spool_writers);
+			gfarm_log_backtrace_symbols();
+		}
+		++ia->u.f.writers;
+		inode_add_ref_spool_writers(inode);
 	}
 	return (inode_open_common(fo, ia));
 }
@@ -5149,7 +5169,8 @@ inode_close_read(struct file_opening *fo, struct gfarm_timespec *atime,
 		--ia->u.f.writers;
 		/* sanity check */
 		if (ia->u.f.writers < 0) {
-			gflog_notice(GFARM_MSG_UNFIXED, "inode_close_read: "
+			/* XXX FIXME: change this from fatal to warning */
+			gflog_fatal(GFARM_MSG_UNFIXED, "inode_close_read: "
 			    "unexpected behavior in inode(%lld:%lld): "
 			    "writers=%d, spool_writers=%d",
 			    (long long)inode->i_number,
@@ -5239,7 +5260,8 @@ inode_add_ref_spool_writers(struct inode *inode)
 
 	/* sanity check */
 	if (ia->u.f.spool_writers < 0) {
-		gflog_notice(GFARM_MSG_UNFIXED,
+		/* XXX FIXME: change this from fatal to warning */
+		gflog_fatal(GFARM_MSG_UNFIXED,
 		    "inode_add_ref_spool_writers: "
 		    "unexpected behavior in inode(%lld:%lld): "
 		    "writers=%d, spool_writers=%d",
@@ -5262,7 +5284,8 @@ inode_del_ref_spool_writers(struct inode *inode)
 
 	/* sanity check */
 	if (ia->u.f.spool_writers < 0) {
-		gflog_notice(GFARM_MSG_UNFIXED,
+		/* XXX FIXME: change this from fatal to warning */
+		gflog_fatal(GFARM_MSG_UNFIXED,
 		    "inode_add_ref_spool_writers: "
 		    "unexpected behavior in inode(%lld:%lld): "
 		    "writers=%d, spool_writers=%d",
