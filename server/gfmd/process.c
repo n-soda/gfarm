@@ -1042,7 +1042,7 @@ process_new_generation_by_cookie_finish(struct inode *inode,
 			    diag, host_name(spool_host),
 			    (long long)inode_get_number(inode));
 		} else {
-			gflog_warning(GFARM_MSG_UNFIXED,
+			gflog_info(GFARM_MSG_UNFIXED,
 			    "%s: FHCLOSE_WRITE inode %lld: "
 			    "no descriptor for %s",
 			    diag,
@@ -1248,7 +1248,7 @@ process_reopen_file(struct process *process,
 		return (GFARM_ERR_NO_ERROR);
 	}
 
-	/* from gfsd: compare this with oprocess_spool_opened_in_slave() */
+	/* from gfsd: compare this with process_spool_opened_in_slave() */
 
 	if (fo->u.f.spool_opener != NULL || fo->u.f.spool_host != NULL) {
 		/* already REOPENed */
@@ -1758,8 +1758,6 @@ process_spool_opened_in_slave(gfarm_pid_t pid, int fd, int open_flags,
 		return (e);
 	}
 
-	if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0)
-		inode_add_ref_spool_writers(fo->inode);
 	process->filetab[fd] = fo;
 
 	return (GFARM_ERR_NO_ERROR);
