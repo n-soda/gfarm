@@ -27,13 +27,57 @@
 #define SASL_JWT_PATH_ENV	"JWT_USER_PATH"
 #define SASL_JWT_PATHNAME	"/tmp/jwt_user_u%lu/token.jwt"
 #define SASL_PASSWORD_LEN_MAX	16384	/* enough size to hold OAuth JWT */
+#define SASL_MECH_DELIMITER " \t"
 
 struct gfarm_auth_sasl_client_static {
 	gfarm_error_t sasl_client_initialized;
 
 	/* use static storage instead of malloc() to avoid race condition */
-	char sasl_secret_password_storage[SASL_PASSWORD_LEN_MAX];
+	union {
+		char sasl_secret_password_storage[SASL_PASSWORD_LEN_MAX];
+		double d; /* for alignment */
+	} u;
 };
+
+static int
+has_common_token(const char *words1, const char *words2) {
+	if (!words1 || !words2 || !*words2) {
+		return (0);
+	}
+
+	const char *p = words1;
+
+	while (*p) {
+		/* get a word from words1 */
+		p += strspn(p, SASL_MECH_DELIMITER);
+		if (!*p) {
+			break;
+		}
+
+		const char *word1 = p;
+		size_t len1 = strcspn(p, SASL_MECH_DELIMITER);
+		p += len1;
+
+		/* compare to all words in words2 */
+		const char *n = words2;
+		while (*n) {
+			n += strspn(n, SASL_MECH_DELIMITER);
+			if (!*n) {
+				break;
+			}
+
+			const char *word2 = n;
+			size_t len2 = strcspn(n, SASL_MECH_DELIMITER);
+			n += len2;
+
+			if (len1 == len2 && strncmp(word1, word2, len2) == 0) {
+				return (1);
+			}
+		}
+	}
+
+	return (0);
+}
 
 gfarm_error_t
 gfarm_auth_request_sasl_common(struct gfp_xdr *conn,
@@ -160,8 +204,8 @@ gfarm_auth_request_sasl_common(struct gfp_xdr *conn,
 	}
 
 	if (gfarm_ctxp->sasl_mechanisms != NULL &&
-	    strstr(mechanism_candidates, gfarm_ctxp->sasl_mechanisms)
-	    == NULL) {
+	    !has_common_token(mechanism_candidates,
+				  gfarm_ctxp->sasl_mechanisms)) {
 
 		/* chosen_mechanism == "" means error */
 		e = gfp_xdr_send(conn, "s", "");
@@ -518,8 +562,8 @@ gfarm_auth_request_sasl_receive_mechanisms(int events, int fd, void *closure,
 		    state->hostname);
 		free(mechanism_candidates);
 	} else if (gfarm_ctxp->sasl_mechanisms != NULL &&
-	    strstr(mechanism_candidates, gfarm_ctxp->sasl_mechanisms)
-	    == NULL) {
+	    !has_common_token(mechanism_candidates,
+				  gfarm_ctxp->sasl_mechanisms)) {
 
 		/* chosen_mechanism == "" means error */
 		e = gfp_xdr_send(state->conn, "s", "");
@@ -955,15 +999,15 @@ gfarm_sasl_secret_password_set_by_string(char *s)
 	size_t len = strlen(s);
 	sasl_secret_t *r;
 
-	if (sizeof(staticp->sasl_secret_password_storage)
+	if (sizeof(staticp->u.sasl_secret_password_storage)
 	    <= offsetof(sasl_secret_t, data) + len) {
 		gflog_error(GFARM_MSG_1005342,
 		    "%zd bytes 'sasl_password' is too long, "
 		    "please increase SASL_PASSWORD_LEN_MAX (%zu)",
-		    len, sizeof(staticp->sasl_secret_password_storage));
+		    len, sizeof(staticp->u.sasl_secret_password_storage));
 		return (GFARM_ERR_VALUE_TOO_LARGE_TO_BE_STORED_IN_DATA_TYPE);
 	}
-	r = (sasl_secret_t *)staticp->sasl_secret_password_storage;
+	r = (sasl_secret_t *)staticp->u.sasl_secret_password_storage;
 	r->len = len;
 	strcpy((char *)r->data, s);
 
@@ -1020,12 +1064,12 @@ gfarm_sasl_secret_password_set_by_jwt_file(void)
 		return (e);
 	}
 
-	r = (sasl_secret_t *)staticp->sasl_secret_password_storage;
+	r = (sasl_secret_t *)staticp->u.sasl_secret_password_storage;
 	r->len = 0;
 	password = (char *)r->data;
 
 	if (fgets(password,
-	    sizeof(staticp->sasl_secret_password_storage) -
+	    sizeof(staticp->u.sasl_secret_password_storage) -
 	    offsetof(sasl_secret_t, data), fp) == NULL) {
 		gflog_warning(GFARM_MSG_1005345,
 		    "Contents of \"%s\" is empty", filename);
@@ -1048,13 +1092,13 @@ gfarm_sasl_secret_password_set_by_jwt_file(void)
 	} else if (getc(fp) == EOF) {
 		r->len = len;
 		e = GFARM_ERR_NO_ERROR;
-	} else if (len >= sizeof(staticp->sasl_secret_password_storage) -
+	} else if (len >= sizeof(staticp->u.sasl_secret_password_storage) -
 	    offsetof(sasl_secret_t, data) - 1) {
 		gflog_error(GFARM_MSG_1005347,
 		    "file %s is too large, "
 		    "please increase SASL_PASSWORD_LEN_MAX (%zu)",
 		    filename,
-		    sizeof(staticp->sasl_secret_password_storage));
+		    sizeof(staticp->u.sasl_secret_password_storage));
 		e = GFARM_ERR_VALUE_TOO_LARGE_TO_BE_STORED_IN_DATA_TYPE;
 	} else {
 		/* shouldn't happen */
@@ -1109,7 +1153,7 @@ sasl_getsecret(
 				return (SASL_FAIL);
 		}
 		*resultp =
-		    (sasl_secret_t *)staticp->sasl_secret_password_storage;
+		    (sasl_secret_t *)staticp->u.sasl_secret_password_storage;
 		break;
 	default:
 		gflog_notice(GFARM_MSG_1005350,

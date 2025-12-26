@@ -1,7 +1,7 @@
 # Part 1 data definition
 %define pkg	gfarm
 %if %{undefined ver}
-%define ver	2.8.7
+%define ver	2.8.8
 %endif
 %if %{undefined rel}
 %define rel	1
@@ -918,10 +918,11 @@ fi
 %{html_prefix}/en/user/auth-gsi.html
 %{html_prefix}/en/user/auth-tls.html
 %{html_prefix}/en/user/auth-sasl.html
-%{html_prefix}/en/user/samba-gfarmfs.html
-%{html_prefix}/en/user/redundancy-tutorial.html
 %{html_prefix}/en/user/cipher-comparison.html
 %{html_prefix}/en/user/dirquota.html
+%{html_prefix}/en/user/multitenancy.html
+%{html_prefix}/en/user/redundancy-tutorial.html
+%{html_prefix}/en/user/samba-gfarmfs.html
 %if %{gfarm_v2_not_yet}
 %{html_prefix}/en/user/nfs-gfarmfs.html
 %endif
@@ -1099,15 +1100,17 @@ fi
 %{html_prefix}/ja/user/auth-gsi.html
 %{html_prefix}/ja/user/auth-tls.html
 %{html_prefix}/ja/user/auth-sasl.html
+%{html_prefix}/ja/user/cipher-comparison.html
+%{html_prefix}/ja/user/dirquota.html
+%{html_prefix}/ja/user/multitenancy.html
+%{html_prefix}/ja/user/redundancy-tutorial.html
 %{html_prefix}/ja/user/samba-gfarmfs.html
+%{html_prefix}/ja/user/smboverssh.html
 %if %{gfarm_v2_not_yet}
 %{html_prefix}/ja/user/export-gfarm.html
 %{html_prefix}/ja/user/nfs-gfarmfs.html
 %endif
 %{html_prefix}/ja/user/smboverssh.html
-%{html_prefix}/ja/user/redundancy-tutorial.html
-%{html_prefix}/ja/user/cipher-comparison.html
-%{html_prefix}/ja/user/dirquota.html
 %{html_prefix}/pic/Gfarm_logo_tate_color.svg
 %{doc_prefix}/INSTALL.en
 %{doc_prefix}/INSTALL.ja
