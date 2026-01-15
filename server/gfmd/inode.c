@@ -786,9 +786,9 @@ inode_activity_free_try(struct inode *inode)
 	if (ia->openings.opening_next == &ia->openings &&
 	    ia->u.f.event_type == EVENT_NONE &&
 	    ia->u.f.rstate == NULL) {
+		/* sanity check */
 		if (ia->u.f.writers != 0 || ia->u.f.spool_writers != 0) {
-			/* XXX FIXME: change this from fatal to warning */
-			gflog_fatal(GFARM_MSG_UNFIXED,
+			gflog_warning(GFARM_MSG_UNFIXED,
 			    "inode_activity_free_try: "
 			    "unexpected behavior in inode(%lld:%lld): "
 			    "writers=%d, spool_writers=%d",
@@ -5216,19 +5216,7 @@ inode_open_spool(struct file_opening *fo)
 	}
 	/* the following condition is currently always true */
 	if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0) {
-
-		/* sanity check */
-		if (ia->u.f.writers < 0) {
-			/* XXX FIXME: change this from fatal to warning */
-			gflog_fatal(GFARM_MSG_UNFIXED, "inode_open: "
-			    "unexpected behavior in inode(%lld:%lld): "
-			    "writers=%d, spool_writers=%d",
-			    (long long)inode->i_number,
-			    (long long)inode->i_gen,
-			    ia->u.f.writers, ia->u.f.spool_writers);
-			gfarm_log_backtrace_symbols();
-		}
-		++ia->u.f.writers;
+		inode_add_ref_writers(inode);
 		inode_add_ref_spool_writers(inode);
 	}
 	return (inode_open_common(fo, ia));

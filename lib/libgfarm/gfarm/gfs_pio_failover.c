@@ -124,7 +124,7 @@ gfs_pio_reopen(struct gfarm_filesystem *fs, GFS_File gf)
 {
 	gfarm_error_t e;
 	struct gfm_connection *gfm_server;
-	int fd, type;
+	int type, fd = -1;
 	gfarm_ino_t ino;
 	gfarm_uint64_t gen;
 	char *real_url = NULL;
@@ -176,6 +176,28 @@ gfs_pio_reopen(struct gfarm_filesystem *fs, GFS_File gf)
 	return (e);
 }
 
+static int
+is_open_state_preserved(GFS_File gf, struct gfm_connection *gfm_server)
+{
+	int type;
+	gfarm_ino_t inum;
+	gfarm_uint64_t igen;
+	gfarm_int32_t mode, flags, to_create;
+
+	if (!gfm_client_does_preserve_open_state(gfm_server) ||
+	    gfm_reopen(gfm_server, gf->fd, &inum, &igen, &mode, &flags,
+	    &to_create) != GFARM_ERR_NO_ERROR)
+		return (0);
+
+	type = gfs_mode_to_type(mode);
+
+	/*
+	 * we won't chack igen vs gf->gen, because
+	 * unlike usual UNIX filesystems, igen may be changed in gfarm
+	 */
+	return (type == gf->type && inum == gf->ino);
+}
+
 struct reset_and_reopen_info {
 	struct gfm_connection *gfm_server;
 	gfarm_pid_t pid;
@@ -194,7 +216,6 @@ check_or_reset_and_reopen(GFS_File gf, void *closure)
 	    gfarm_filesystem_get_by_connection(gfm_server);
 	int fc = gfarm_filesystem_failover_count(fs);
 	int need_reopen;
-	struct gfs_stat st;
 
 	if ((e = gfm_client_connection_acquire(gfm_client_hostname(gfm_server),
 	    gfm_client_port(gfm_server), gfm_client_username(gfm_server),
@@ -215,10 +236,7 @@ check_or_reset_and_reopen(GFS_File gf, void *closure)
 	}
 
 	if (ri->pid != 0 && gf->fd != -1 &&
-	    gfs_fstat_without_failover(gfm_server, gf->fd, &st)
-	    == GFARM_ERR_NO_ERROR &&
-	    GFARM_S_ISREG(st.st_mode) && st.st_ino == gf->fd) {
-		/* XXX should check st_igen as well? */
+	    is_open_state_preserved(gf, gfm_server)) {
 		need_reopen = 0;
 	} else {
 		need_reopen = 1;
@@ -435,8 +453,9 @@ failover0(struct gfm_connection *gfm_server, const char *host0, int port,
 		}
 
 		/*
-		 * close fd, release gfm_connection and set invalid fd,
-		 * reset processes and reopen files
+		 * release gfm_connection and reopen files.
+		 * also (may, or may not) reset processes and
+		 * close fd, and set invalid fd
 		*/
 		ok = check_or_reset_and_reopen_all(gfm_server, gfl,
 		    old_process_exist &&

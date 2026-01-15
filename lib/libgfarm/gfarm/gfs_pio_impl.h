@@ -57,11 +57,12 @@ struct gfs_file {
 #define GFS_FILE_MODE_BUFFER_DIRTY	0x40000000
 #define GFS_FILE_MODE_MODIFIED		0x80000000
 
-	/* remember parameter of open/set_view */
-	int open_flags;
 	/* remember opened url */
 	char *url;
-	/* remember opened inode num */
+	/* remember parameter of open/set_view */
+	int open_flags;
+	/* remember opened inode type/inum/gen */
+	int type;
 	gfarm_ino_t ino;
 	gfarm_uint64_t gen;
 #if 0 /* not yet in gfarm v2 */

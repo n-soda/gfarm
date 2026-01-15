@@ -376,7 +376,7 @@ gfs_pio_reopen_fd(GFS_File gf,
 
 static gfarm_error_t
 gfs_file_alloc(struct gfm_connection *gfm_server, gfarm_int32_t fd, int flags,
-	char *url, gfarm_ino_t ino, gfarm_uint64_t gen,
+	char *url, int type, gfarm_ino_t ino, gfarm_uint64_t gen,
 	struct gfs_pio_internal_cksum_info *cip, GFS_File *gfp)
 {
 	GFS_File gf;
@@ -429,6 +429,7 @@ gfs_file_alloc(struct gfm_connection *gfm_server, gfarm_int32_t fd, int flags,
 	gf->p = 0;
 	gf->length = 0;
 	gf->offset = 0;
+	gf->type = type;
 	gf->ino = ino;
 	gf->gen = gen;
 	gf->url = url;
@@ -639,7 +640,7 @@ gfs_pio_create_igen(const char *url, int flags, gfarm_mode_t mode,
 			    GFARM_ERR_OPERATION_NOT_PERMITTED;
 		} else
 			e = gfs_file_alloc(gfm_server, fd, flags, real_url,
-			    inum, gen, cip, gfp);
+			    type, inum, gen, cip, gfp);
 		if (e != GFARM_ERR_NO_ERROR) {
 			free(real_url);
 			/* ignore result */
@@ -711,7 +712,7 @@ gfs_pio_open(const char *url, int flags, GFS_File *gfp)
 			    GFARM_ERR_OPERATION_NOT_PERMITTED;
 		} else
 			e = gfs_file_alloc(gfm_server, fd, flags, real_url,
-			    ino, gen, cip, gfp);
+			    type, ino, gen, cip, gfp);
 		if (e != GFARM_ERR_NO_ERROR) {
 			free(real_url);
 			/* ignore result */
@@ -758,7 +759,7 @@ gfs_pio_fhopen(gfarm_ino_t inum, gfarm_uint64_t gen, int flags, GFS_File *gfp)
 			    GFARM_ERR_OPERATION_NOT_PERMITTED;
 		} else
 			e = gfs_file_alloc(gfm_server, fd, flags, NULL,
-			    inum, gen, cip, gfp);
+			    type, inum, gen, cip, gfp);
 		if (e != GFARM_ERR_NO_ERROR) {
 			/* ignore result */
 			(void)gfm_close_fd(gfm_server, fd, NULL, NULL);

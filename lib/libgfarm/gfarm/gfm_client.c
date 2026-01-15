@@ -328,6 +328,16 @@ gfm_client_process_is_set(struct gfm_connection *gfm_server)
 	return (gfm_server->pid != 0);
 }
 
+/* XXX FIXME: update the version number */
+int
+gfm_client_does_preserve_open_state(struct gfm_connection *gfm_server)
+{
+	return (
+	    gfm_server->gfmd_version_major >= 2 &&
+	    gfm_server->gfmd_version_minor >= 8 &&
+	    gfm_server->gfmd_version_teeny >= 8);
+}
+
 /* this interface is exported for a use from a private extension */
 void
 gfm_client_purge_from_cache(struct gfm_connection *gfm_server)
@@ -949,6 +959,7 @@ gfm_client_process_initialize(struct gfm_connection *gfm_server,
 	gfarm_error_t e, e2 = GFARM_ERR_NO_ERROR;
 	struct gfarm_user_info user;
 	static const char diag[] = "gfm_client_process_initialize";
+	/* XXX FIXME MT-UNSAFE: lock config_vars */
 	static void *config_vars[] = {
 		&gfarm_metadb_version_major,
 		&gfarm_metadb_version_minor,
@@ -4001,10 +4012,6 @@ gfm_client_findxmlattr_result(struct gfm_connection *gfm_server,
 	return (GFARM_ERR_NO_ERROR);
 }
 
-/*
- * gfs from gfsd
- */
-
 gfarm_error_t
 gfm_client_reopen_request(struct gfm_connection *gfm_server)
 {
@@ -4019,6 +4026,50 @@ gfm_client_reopen_result(struct gfm_connection *gfm_server,
 	return (gfm_client_rpc_result(gfm_server, 0, "lliii", ino_p, gen_p,
 	    modep, flagsp, to_create_p));
 }
+
+struct gfm_reopen_closure {
+	gfarm_ino_t *ino_p;
+	gfarm_uint64_t *gen_p;
+	gfarm_int32_t *modep;
+	gfarm_int32_t *flagsp;
+	gfarm_int32_t *to_create_p;
+};
+
+static gfarm_error_t
+gfm_reopen_request(struct gfm_connection *gfm_server, void *closure)
+{
+	return (gfm_client_reopen_request(gfm_server));
+}
+
+static gfarm_error_t
+gfm_reopen_result(struct gfm_connection *gfm_server, void *closure)
+{
+	struct gfm_reopen_closure *c = closure;
+
+	return (gfm_client_reopen_result(gfm_server,
+	    c->ino_p, c->gen_p, c->modep, c->flagsp, c->to_create_p));
+}
+
+gfarm_error_t
+gfm_reopen(struct gfm_connection *gfm_server, int fd,
+	gfarm_ino_t *ino_p, gfarm_uint64_t *gen_p, gfarm_int32_t *modep,
+	gfarm_int32_t *flagsp, gfarm_int32_t *to_create_p)
+{
+	struct gfm_reopen_closure closure;
+
+	closure.ino_p = ino_p;
+	closure.gen_p = gen_p;
+	closure.modep = modep;
+	closure.flagsp = flagsp;
+	closure.to_create_p = to_create_p;
+
+	return (gfm_client_compound_fd_op(gfm_server, fd,
+	    gfm_reopen_request, gfm_reopen_result, NULL, &closure));
+}
+
+/*
+ * gfs from gfsd
+ */
 
 gfarm_error_t
 gfm_client_close_read_request(struct gfm_connection *gfm_server,

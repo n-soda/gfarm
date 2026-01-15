@@ -1237,7 +1237,7 @@ process_reopen_file(struct process *process,
 	}
 
 	if (spool_host == NULL) { /* i.e. from_client */
-		if (fo->opener != NULL) {
+		if (fo->opener != NULL || fo->opener != peer) {
 			/* already REOPENed */
 			gflog_debug(GFARM_MSG_UNFIXED,
 				"pid %lld, descriptor %d already reopened",
@@ -1245,6 +1245,12 @@ process_reopen_file(struct process *process,
 			return (GFARM_ERR_OPERATION_NOT_PERMITTED);
 		}
 		fo->opener = peer;
+
+		*inump = inode_get_number(fo->inode);
+		*genp = inode_get_gen(fo->inode);
+		*modep = inode_get_mode(fo->inode);
+		*flagsp = fo->flag & GFARM_FILE_USER_MODE;
+		*to_createp = 0; /* currently this is always 0 for clients */
 		return (GFARM_ERR_NO_ERROR);
 	}
 

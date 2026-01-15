@@ -57,8 +57,3 @@ gfarm_error_t gfm_client_compound_fd_op_readonly(struct gfs_failover_file *,
 	gfarm_error_t (*)(struct gfm_connection *, void *),
 	void (*)(struct gfm_connection *, void *),
 	void *);
-
-/* gfs_stat.c: internal use only (for failover processing) */
-struct gfs_stat;
-gfarm_error_t gfs_fstat_without_failover(struct gfm_connection *, int,
-	struct gfs_stat *);

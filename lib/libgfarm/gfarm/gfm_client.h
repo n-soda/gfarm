@@ -61,6 +61,7 @@ int gfm_client_process_equal(struct gfm_connection *,
 gfarm_error_t gfm_client_process_get(struct gfm_connection *,
 	gfarm_int32_t *, const char **, size_t *, gfarm_pid_t *);
 gfarm_error_t gfm_client_process_is_set(struct gfm_connection *);
+int gfm_client_does_preserve_open_state(struct gfm_connection *);
 int gfm_cached_connection_had_connection_error(struct gfm_connection *);
 
 gfarm_error_t gfm_client_connection_acquire(const char *, int, const char *,
@@ -402,12 +403,16 @@ void gfarm_dirset_dir_list_free(int, struct gfarm_dirset_dir_info *);
 gfarm_error_t gfm_client_dirset_dir_list(struct gfm_connection *,
 	const char *, const char *,
 	int *, struct gfarm_dirset_dir_info **);
-
-/* gfs from gfsd */
 gfarm_error_t gfm_client_reopen_request(struct gfm_connection *);
 gfarm_error_t gfm_client_reopen_result(struct gfm_connection *,
 	gfarm_ino_t *, gfarm_uint64_t *, gfarm_int32_t *, gfarm_int32_t *,
 	gfarm_int32_t *);
+gfarm_error_t gfm_reopen(struct gfm_connection *, int,
+	gfarm_ino_t *, gfarm_uint64_t *, gfarm_int32_t *, gfarm_int32_t *,
+	gfarm_int32_t *);
+
+/* gfs from gfsd */
+
 gfarm_error_t gfm_client_lock_request(struct gfm_connection *,
 	gfarm_off_t, gfarm_off_t, gfarm_int32_t, gfarm_int32_t);
 gfarm_error_t gfm_client_lock_result(struct gfm_connection *);

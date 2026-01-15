@@ -171,7 +171,7 @@ enum gfm_proto_command {
 
 	/* gfs from gfsd */
 
-	GFM_PROTO_REOPEN,
+	GFM_PROTO_REOPEN,			/* now, used from client too */
 	GFM_PROTO_CLOSE_READ,
 	GFM_PROTO_CLOSE_WRITE,			/* for COMPAT_GFARM_2_3 */
 	GFM_PROTO_LOCK,
