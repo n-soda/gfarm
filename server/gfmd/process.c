@@ -343,7 +343,7 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 	return (0); /* process freed */
 }
 
-/* slave gfmd only, called from db_journal_apply.c */
+/* db load time, or otherwise slave gfmd (called from db_journal_apply.c) */
 gfarm_error_t
 process_enter_in_slave(gfarm_pid_t pid, char *username,
 	int key_type, size_t key_len, char *shared_key)
@@ -368,6 +368,7 @@ process_enter_in_slave(gfarm_pid_t pid, char *username,
 		    gfarm_error_string(e));
 		return (e);
 	}
+	process->flags |= PROCESS_PROPAGATED; /* must be propagated */
 	process_add_ref(process);
 	return (GFARM_ERR_NO_ERROR);
 }
@@ -1654,11 +1655,13 @@ process_close_file_write(struct process *process, struct peer *peer, int fd,
 		/* closing REOPENed file, but the client is still opening */
 		fo->u.f.spool_opener = NULL;
 		fo->u.f.spool_host = NULL;
+		(void)process_propagate_spool_closed(process, fd);
 	} else {
 		inode_close(fo, 0, NULL, diag);
 
 		file_opening_free(fo, mode);
 		process->filetab[fd] = NULL;
+		(void)process_propagate_spool_closed(process, fd);
 	}
 	if (flagsp != NULL)
 		*flagsp = flags;
