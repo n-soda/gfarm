@@ -1416,6 +1416,8 @@ process_close_or_abort_file(struct process *process,
 	mode = inode_get_mode(fo->inode);
 
 	if (!from_client) {
+		int keep_opened = 0;
+
 		if (peer != NULL &&
 		    !process_peer_is_the_spool_opener(process, peer, fd, fo,
 		    mode, diag))
@@ -1442,7 +1444,15 @@ process_close_or_abort_file(struct process *process,
 			    == fd) {
 				peer_unset_pending_new_generation_by_fd(peer,
 				    GFARM_ERR_NO_SUCH_PROCESS);
+			} else if (aborted) {
+				/* XXX FIXME needs re-check */
+				keep_opened = 1;
 			} else {
+				/*
+				 * XXX FIXME
+				 * need to confirm that all callers specify
+				 * abort == 0
+				 */
 				inode_del_ref_spool_writers(fo->inode);
 
 				/* the following must be NOP in slave */
@@ -1454,6 +1464,8 @@ process_close_or_abort_file(struct process *process,
 				}
 			}
 		}
+		if (keep_opened)
+			return (GFARM_ERR_NO_ERROR);
 		if (fo->opener != NULL) {
 			/*
 			 * a gfsd is closing a REOPENed file,
@@ -1463,7 +1475,6 @@ process_close_or_abort_file(struct process *process,
 			fo->u.f.spool_host = NULL;
 			return (GFARM_ERR_NO_ERROR);
 		}
-
 	} else if (peer != NULL && fo->opener != NULL && fo->opener != peer) {
 		gflog_info(GFARM_MSG_UNFIXED,
 		    "close: client peer %s does not match, %s expected",
