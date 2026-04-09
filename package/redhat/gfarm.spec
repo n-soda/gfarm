@@ -1,7 +1,7 @@
 # Part 1 data definition
 %define pkg	gfarm
 %if %{undefined ver}
-%define ver	2.8.8
+%define ver	2.8.9
 %endif
 %if %{undefined rel}
 %define rel	1
@@ -1128,10 +1128,20 @@ fi
 %{doc_prefix}/SETUP.ja
 %{doc_prefix}/SETUP.private.en
 %{doc_prefix}/SETUP.private.ja
+%{doc_prefix}/DEVELOPER
 %{doc_prefix}/Gfarm-FAQ.en
 %{doc_prefix}/Gfarm-FAQ.ja
 %{doc_prefix}/KNOWN_PROBLEMS.en
 %{doc_prefix}/KNOWN_PROBLEMS.ja
+%{doc_prefix}/iostat-dev.ja
+%{doc_prefix}/iostat-setup.ja
+%{doc_prefix}/voms-dev.ja
+%{doc_prefix}/voms-install.ja
+%{doc_prefix}/xattr-dev.ja
+%{doc_prefix}/xattr-install.ja
+%{doc_prefix}/xattr-man.ja
+%{doc_prefix}/automount.en.md
+%{doc_prefix}/automount.ja.md
 %{doc_prefix}/encfs.en.md
 %{doc_prefix}/encfs.ja.md
 %{doc_prefix}/quota.en

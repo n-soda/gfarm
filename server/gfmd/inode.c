@@ -788,7 +788,7 @@ inode_activity_free_try(struct inode *inode)
 	    ia->u.f.rstate == NULL) {
 		/* sanity check */
 		if (ia->u.f.writers != 0 || ia->u.f.spool_writers != 0) {
-			gflog_warning(GFARM_MSG_UNFIXED,
+			gflog_warning(GFARM_MSG_1005742,
 			    "inode_activity_free_try: "
 			    "unexpected behavior in inode(%lld:%lld): "
 			    "writers=%d, spool_writers=%d",
@@ -1032,6 +1032,13 @@ static struct gflog_reduced_state rep_fixed_state =
  * and being_removed[] but they may be abled to be used later.
  *
  * srcs[] must be different from existing[].
+ *
+ * 1. divide scope[] except existing[] into a set of candidates from the same
+ *  network as existing[] (targets_near[]) and a set of candidates from
+ *  a different network as existing[] (targets_far[])
+ * 2. sort srcs[] by network to find a node on the same network quickly
+ * 3. create replicas for targets_near[]
+ * 4. if there are not enough, create replicas for targets_far[]
  */
 gfarm_error_t
 inode_schedule_replication_within_scope(
@@ -1106,7 +1113,7 @@ inode_schedule_replication_within_scope(
 
 	e = host_sort_by_network(n_srcs, srcs, &net_index, &n_net_index);
 	if (e != GFARM_ERR_NO_ERROR) {
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005743,
 			"inode_schedule_replication_within_scope:"
 			"host sort failed");
 		return (e);
@@ -2615,7 +2622,7 @@ inode_add_ref_writers(struct inode *inode)
 
 	/* sanity check */
 	if (ia->u.f.writers < 0) {
-		gflog_warning(GFARM_MSG_UNFIXED,
+		gflog_warning(GFARM_MSG_1005744,
 		    "inode_add_ref_writers: "
 		    "unexpected behavior in inode(%lld:%lld): "
 		    "writers=%d, spool_writers=%d",
@@ -2638,7 +2645,7 @@ inode_del_ref_writers(struct inode *inode)
 
 	/* sanity check */
 	if (ia->u.f.writers < 0) {
-		gflog_warning(GFARM_MSG_UNFIXED,
+		gflog_warning(GFARM_MSG_1005745,
 		    "inode_del_ref_writers: "
 		    "unexpected behavior in inode(%lld:%lld): "
 		    "writers=%d, spool_writers=%d",
@@ -2658,7 +2665,7 @@ inode_add_ref_spool_writers(struct inode *inode)
 
 	/* sanity check */
 	if (ia->u.f.spool_writers < 0) {
-		gflog_warning(GFARM_MSG_UNFIXED,
+		gflog_warning(GFARM_MSG_1005746,
 		    "inode_add_ref_spool_writers: "
 		    "unexpected behavior in inode(%lld:%lld): "
 		    "writers=%d, spool_writers=%d",
@@ -2681,7 +2688,7 @@ inode_del_ref_spool_writers(struct inode *inode)
 
 	/* sanity check */
 	if (ia->u.f.spool_writers < 0) {
-		gflog_warning(GFARM_MSG_UNFIXED,
+		gflog_warning(GFARM_MSG_1005747,
 		    "inode_del_ref_spool_writers: "
 		    "unexpected behavior in inode(%lld:%lld): "
 		    "writers=%d, spool_writers=%d",
