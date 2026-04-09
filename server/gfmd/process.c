@@ -333,7 +333,7 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 	process->siblings.next->prev = process->siblings.prev;
 	process->siblings.prev->next = process->siblings.next;
 
-	if ((process->flags & PROCESS_PROPAGATED) != 0 &&
+	if (!in_slave && (process->flags & PROCESS_PROPAGATED) != 0 &&
 	    (e = db_process_free(process->pid)) != GFARM_ERR_NO_ERROR)
 		gflog_error(GFARM_MSG_UNFIXED, "db_process_free(%lld): %s",
 		    (long long)process->pid, gfarm_error_string(e));
