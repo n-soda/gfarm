@@ -148,8 +148,13 @@ gfs_pio_reopen(struct gfarm_filesystem *fs, GFS_File gf)
 	} else {
 		gf->fd = fd;
 		/* storage_context is null in scheduling */
-		if (get_storage_context(gf->view_context) != NULL)
+		if (get_storage_context(gf->view_context) != NULL) {
 			e = (*gf->ops->view_reopen)(gf);
+			if (e != GFARM_ERR_NO_ERROR)
+				gflog_debug(GFARM_MSG_UNFIXED,
+				    "gfs_pio_reopen(fd=%d): view_reopen: %s",
+				    gf->fd, gfarm_error_string(e));
+		}
 	}
 
 	if (e == GFARM_ERR_NO_ERROR) {
