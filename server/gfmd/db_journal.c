@@ -4859,6 +4859,7 @@ db_journal_fetch(struct journal_file_reader *reader,
 		e = journal_file_read_serialized(reader, &rec, &rec_len,
 		    &seqnum, &eof);
 
+gflog_info(GFARM_MSG_UNFIXED, "db_journal_fetch");
 		journal_file_mutex_lock(self_jf, diag);
 		journal_file_reader_commit_pos(reader);
 		journal_file_mutex_unlock(self_jf, diag);

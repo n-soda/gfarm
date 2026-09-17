@@ -301,8 +301,16 @@ create_and_write_file(GFS_File gf[], char path[][PATH_MAX],
 		msg("gf[%d]: create %s\n", i, path[i]);
 		chkerr_n(gfs_pio_create(path[i], GFARM_FILE_WRONLY,
 		    0777, &gf[i]), "create", i);
+msg("gf[%d]: create %s: done: fd=%d\n", i, path[i], gf[i], gfs_pio_fileno(gf[i]));
 
 		if (i != nfiles - 1) {
+			msg("gf[%d]: write %d bytes\n", i, sz);
+			chkerr_n(gfs_pio_write(gf[i], TEXT1, sz, &len),
+			    "write1", i);
+			msg("gf[%d]: write %d bytes ok\n", i, len);
+			msg("gf[%d]: flush\n", i);
+			chkerr_n(gfs_pio_flush(gf[i]), "flush", i);
+			msg("gf[%d]: flush ok\n", i);
 			msg("gf[%d]: write %d bytes\n", i, sz);
 			chkerr_n(gfs_pio_write(gf[i], TEXT1, sz, &len),
 			    "write1", i);

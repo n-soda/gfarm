@@ -33,7 +33,10 @@ listxattr|llistxattr|getxmlattr|lgetxmlattr|setxmlattr|lsetxmlattr|\
 listxmlattr|llistxmlattr|removexmlattr|lremovexmlattr|\
 findxmlattr|getxmlent|closexmlattr|\
 shhosts-domainfile|rep-info|rep-list)
+	echo $PROG $autoopt $type $GF_TMPF
 	$PROG $autoopt $type $GF_TMPF
+	#echo HIT ANY KEY
+	#read key
 	;;
 
 recvfile|recvfile-stat|recvfile-close-recvfile)

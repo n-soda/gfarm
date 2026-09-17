@@ -852,7 +852,9 @@ gfs_pio_close_getgen(GFS_File gf, gfarm_uint64_t *igenp)
 			}
 		}
 
+gflog_info(GFARM_MSG_UNFIXED, "gfs close request fd:%d", gf->fd);
 		e = (*gf->ops->view_close)(gf);
+gflog_info(GFARM_MSG_UNFIXED, "gfs close result fd:%d: %s", gf->fd, gfarm_error_string(e));
 		if (e == GFARM_ERR_GFMD_FAILED_OVER) {
 			gflog_info(GFARM_MSG_1003268,
 			    "ignore %s error at pio close operation",
@@ -915,7 +917,9 @@ gfs_pio_close_getgen(GFS_File gf, gfarm_uint64_t *igenp)
 	 * closed in gfmd when the connection is closed.
 	 */
 	if (gf->fd >= 0) {
+gflog_info(GFARM_MSG_UNFIXED, "gfm close request fd:%d", gf->fd);
 		e = gfm_close_fd(gf->gfm_server, gf->fd, igenp, cip);
+gflog_info(GFARM_MSG_UNFIXED, "gfm close result fd:%d: %s", gf->fd, gfarm_error_string(e));
 		if (e != GFARM_ERR_NO_ERROR)
 			gflog_debug(GFARM_MSG_1004220,
 				    "gfs_pio_close: close gfmd: %s",

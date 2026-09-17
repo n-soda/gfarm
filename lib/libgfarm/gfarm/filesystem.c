@@ -363,6 +363,19 @@ gfarm_filesystem_process_get(struct gfarm_filesystem *fs,
 	return (pid != 0);
 }
 
+gfarm_pid_t
+gfarm_filesystem_pid(struct gfarm_filesystem *fs)
+{
+	gfarm_pid_t pid;
+	const char diag[] = "gfarm_filesystem_pid";
+
+	gfarm_filesystem_lock(fs, diag);
+	pid = fs->pid;
+	gfarm_filesystem_unlock(fs, diag);
+
+	return (pid);
+}
+
 static gfarm_error_t
 gfarm_filesystem_update_metadb_server_list(struct gfarm_filesystem *fs,
 	struct gfarm_metadb_server **metadb_servers, int n,

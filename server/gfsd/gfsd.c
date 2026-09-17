@@ -2679,11 +2679,14 @@ gfarm_error_t
 close_request(struct file_entry *fe)
 {
 	if (fe->flags & FILE_FLAG_WRITTEN) {
+gflog_info(GFARM_MSG_UNFIXED, "close_write_v2_8 request pid=%lld fd=%zd", (long long)current_pid, fe-file_table);
 		return (gfm_client_close_write_v2_8_request(gfm_server));
 	} else if (fe->flags & FILE_FLAG_READ) {
+gflog_info(GFARM_MSG_UNFIXED, "close_read request pid=%lld fd=%zd", (long long)current_pid, fe-file_table);
 		return (gfm_client_close_read_request(gfm_server,
 		    (gfarm_int64_t)fe->atime, (gfarm_int32_t)fe->atimensec));
 	} else {
+gflog_info(GFARM_MSG_UNFIXED, "close request pid=%lld fd=%zd", (long long)current_pid, fe-file_table);
 		return (gfm_client_close_request(gfm_server));
 	}
 }
@@ -2692,9 +2695,11 @@ gfarm_error_t
 fhclose_request(struct file_entry *fe)
 {
 	if (fe->flags & FILE_FLAG_WRITTEN) {
+gflog_info(GFARM_MSG_UNFIXED, "fhclose_write_v2_8 request pid=%lld fd=%zd", (long long)current_pid, fe-file_table);
 		return (gfm_client_fhclose_write_v2_8_request(gfm_server,
 		    fe->ino, fe->gen));
 	} else if (fe->flags & FILE_FLAG_READ) {
+gflog_info(GFARM_MSG_UNFIXED, "fhclose_read request pid=%lld fd=%zd", (long long)current_pid, fe-file_table);
 		return (gfm_client_fhclose_read_request(gfm_server,
 		    fe->ino, fe->gen,
 		    (gfarm_int64_t)fe->atime, (gfarm_int32_t)fe->atimensec));
@@ -2829,6 +2834,7 @@ close_result(struct file_entry *fe, gfarm_int32_t *gen_update_result_p)
 	if (fe->flags & FILE_FLAG_WRITTEN) {
 		e = gfm_client_close_write_v2_8_result(gfm_server,
 		    &flags, &old_gen, &new_gen);
+gflog_info(GFARM_MSG_UNFIXED, "close_write_v2_8 result pid=%lld fd=%zd: %s", (long long)current_pid, fe-file_table, gfarm_error_string(e));
 		if (e == GFARM_ERR_NO_ERROR &&
 		    (flags & GFM_PROTO_CLOSE_WRITE_GENERATION_UPDATE_NEEDED))
 			*gen_update_result_p = update_local_file_generation(
@@ -2858,6 +2864,7 @@ fhclose_result(struct file_entry *fe, gfarm_uint64_t *cookie_p,
 	if (fe->flags & FILE_FLAG_WRITTEN) {
 		e = gfm_client_fhclose_write_v2_8_result(gfm_server,
 		    &flags, &old_gen, &new_gen, cookie_p);
+gflog_info(GFARM_MSG_UNFIXED, "fhclose_write_v2_8 result fd=%zd: %s", fe-file_table, gfarm_error_string(e));
 		if (e == GFARM_ERR_NO_ERROR &&
 		    (flags & GFM_PROTO_CLOSE_WRITE_GENERATION_UPDATE_NEEDED))
 			*gen_update_result_p = update_local_file_generation(
@@ -3327,17 +3334,28 @@ close_fd_somehow(struct gfp_xdr *client,
 	} else {
 
 		if (fd_usable_to_gfmd) {
-			while ((e = close_fd(client, fd, fe, diag)) ==
-			    GFARM_ERR_READ_ONLY_FILE_SYSTEM) {
-				gflog_info(GFARM_MSG_1005225,
-				    "close_write: inode %llu:%llu waiting "
-				    "for %d seconds until read_only disabled",
-				    (long long)fe->ino, (long long)fe->gen,
-				    gfarm_spool_server_read_only_retry_interval
-				    );
-				gfarm_sleep(
-				    gfarm_spool_server_read_only_retry_interval
-				    );
+			for (;;) {
+				while ((e = close_fd(client, fd, fe, diag)) ==
+				    GFARM_ERR_READ_ONLY_FILE_SYSTEM) {
+					gflog_info(GFARM_MSG_1005225,
+					    "close_write: "
+					    "inode %llu:%llu waiting "
+					    "for %d seconds until "
+					    "read_only disabled",
+					    (long long)fe->ino,
+					    (long long)fe->gen,
+					    gfarm_spool_server_read_only_retry_interval);
+					gfarm_sleep(
+					    gfarm_spool_server_read_only_retry_interval);
+				}
+				if (IS_CONNECTION_ERROR(e)) {
+					reconnect_gfm_server_for_failover(
+					    "close_fd_somehow/close_fd");
+					failedover = 1;
+					if (fd_usable_to_gfmd)
+						continue;
+				}
+				break;
 			}
 			if (IS_CONNECTION_ERROR(e)) {
 				/* fd_usable_to_gfmd will be set to 0 */

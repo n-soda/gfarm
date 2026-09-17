@@ -2463,6 +2463,8 @@ db_spool_closed(gfarm_pid_t pid, int fd)
 	}
 	arg->pid = pid;
 	arg->fd = fd;
+gflog_info(GFARM_MSG_UNFIXED, "db_spool_closed pid:%lld fd:%d", (long long)pid, fd);
+gfarm_log_backtrace_symbols();
 	return (db_enter_sn((dbq_entry_func_t)ops->spool_closed, arg));
 }
 

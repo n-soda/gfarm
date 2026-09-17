@@ -288,6 +288,12 @@ gfm_client_connection_failover_count(struct gfm_connection *gfm_server)
 	return (gfm_server->failover_count);
 }
 
+gfarm_pid_t
+gfm_client_pid(struct gfm_connection *gfm_server)
+{
+	return (gfm_server->pid);
+}
+
 int
 gfm_client_process_equal(struct gfm_connection *gfm_server,
 	gfarm_int32_t keytype, const char *sharedkey,
@@ -5323,19 +5329,29 @@ gfm_client_compound_fd_op(struct gfm_connection *gfm_server, gfarm_int32_t fd,
 
 	else if ((e = gfm_client_compound_begin_result(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1000065, "compound_begin result: %s",
+		gflog_warning(GFARM_MSG_UNFIXED,
+		    "compound_begin pid=%lld fd=%d failover_count=%d "
+		    "result: %s",
+		    (long long)gfm_client_pid(gfm_server),
+		    fd, gfm_client_connection_failover_count(gfm_server),
 		    gfarm_error_string(e));
 	else if ((e = gfm_client_put_fd_result(gfm_server))
 	    != GFARM_ERR_NO_ERROR)
-		gflog_warning(GFARM_MSG_1000066, "put_fd result: %s",
+		gflog_warning(GFARM_MSG_UNFIXED,
+		    "put_fd pid=%lld fd=%d failover_count=%d result: %s",
+		    (long long)gfm_client_pid(gfm_server),
+		    fd, gfm_client_connection_failover_count(gfm_server),
 		    gfarm_error_string(e));
 	else if ((e = (*result_op)(gfm_server, closure))
 	    != GFARM_ERR_NO_ERROR)
-		;
+		gflog_warning(GFARM_MSG_UNFIXED,
+		    "result_op:%p fd=%d result: %s",
+		    result_op, fd, gfarm_error_string(e));
 	else if ((e = gfm_client_compound_end_result(gfm_server))
 	    != GFARM_ERR_NO_ERROR) {
-		gflog_warning(GFARM_MSG_1000067, "compound_end result: %s",
-		    gfarm_error_string(e));
+		gflog_warning(GFARM_MSG_UNFIXED,
+		    "compound_end fd=%d result: %s",
+		    fd, gfarm_error_string(e));
 		if (cleanup_op != NULL)
 			(*cleanup_op)(gfm_server, closure);
 	}

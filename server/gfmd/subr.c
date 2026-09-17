@@ -329,6 +329,9 @@ create_detached_thread(void *(*thread_main)(void *), void *arg)
 	int err;
 	pthread_t thread_id;
 
+gflog_info(GFARM_MSG_UNFIXED, "create_detached_thread(%p)", thread_main);
+gfarm_log_backtrace_symbols();
+gflog_info(GFARM_MSG_UNFIXED, "create_detached_thread(%p) == END ===", thread_main);
 	err = pthread_create(&thread_id, gfarm_pthread_attr_get(),
 	    thread_main, arg);
 	return (err == 0 ? GFARM_ERR_NO_ERROR : gfarm_errno_to_error(err));

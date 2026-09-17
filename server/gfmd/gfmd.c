@@ -1572,6 +1572,8 @@ sigs_handler(void *p)
 	int rv, sig;
 	static const char diag[] = "sigs_handler";
 
+gflog_info(GFARM_MSG_UNFIXED, "sigs_handler():%p started", sigs_handler);
+gfarm_log_backtrace_symbols();
 #ifdef __linux__
 	/* A Linux Thread is a process having its own process id. */
 	write_pid();
@@ -1588,6 +1590,7 @@ sigs_handler(void *p)
 			continue;
 
 		case SIGUSR1:
+gflog_info(GFARM_MSG_UNFIXED, "got SIGUSR1");
 			if (gfarm_get_metadb_replication_enabled()) {
 				if (!gfmd_startup_state_is_ready()) {
 					gflog_info(GFARM_MSG_1003454,
@@ -1595,6 +1598,7 @@ sigs_handler(void *p)
 					    "completion of initialization");
 					gfmd_startup_state_wait_ready();
 				}
+gflog_info(GFARM_MSG_UNFIXED, "calling transform_to_master()");
 				transform_to_master();
 			}
 			continue;
@@ -1628,6 +1632,7 @@ sigs_handler(void *p)
 		case SIGPWR:
 #endif
 #endif
+gflog_info(GFARM_MSG_UNFIXED, "got sig %d", sig);
 			/* terminate gfmd */
 			break;
 		default:
@@ -1933,6 +1938,7 @@ main(int argc, char **argv)
 	gfarm_metadb_version_major = gfarm_version_major();
 	gfarm_metadb_version_minor = gfarm_version_minor();
 	gfarm_metadb_version_teeny = gfarm_version_teeny();
+gflog_info(GFARM_MSG_UNFIXED, "main <1>");
 	e = gfarm_server_initialize_for_gfmd(config_file, &argc, &argv);
 	if (e != GFARM_ERR_NO_ERROR) {
 		gflog_debug(GFARM_MSG_1001486,
@@ -1960,15 +1966,17 @@ main(int argc, char **argv)
 	 * to print the error message to stderr.
 	 */
 	write_pid();
+gflog_info(GFARM_MSG_UNFIXED, "main <2>");
 
 	giant_init();
 	config_var_init();
-
+gflog_info(GFARM_MSG_UNFIXED, "main <2.1>");
 	/*
 	 * We do this before calling gfarm_daemon()
 	 * to print the error message to stderr.
 	 */
 	set_db_ops();
+gflog_info(GFARM_MSG_UNFIXED, "main <2.2>");
 
 	/*
 	 * This initializes dbq, thus, should be called before
@@ -1981,24 +1989,30 @@ main(int argc, char **argv)
 		    "database initialization failed: %s",
 		    gfarm_error_string(e));
 	}
+gflog_info(GFARM_MSG_UNFIXED, "main <2.3>");
 
 	if (!debug_mode) {
+gflog_info(GFARM_MSG_UNFIXED, "main <2.4>");
 		if (syslog_file != NULL) {
 			if (gflog_file_open(syslog_file) == NULL)
 				gflog_fatal_errno(GFARM_MSG_1005100,
 				    "%s", syslog_file);
 		} else
 			gflog_syslog_open(LOG_PID, syslog_facility);
+gflog_info(GFARM_MSG_UNFIXED, "main <2.5>");
 		if (gfarm_daemon(0, 0) == -1)
 			gflog_warning_errno(GFARM_MSG_1001487, "daemon");
+gflog_info(GFARM_MSG_UNFIXED, "main <2.6>");
 	}
 	giant_type_log();
+gflog_info(GFARM_MSG_UNFIXED, "main <2.7>");
 
 	/*
 	 * We do this after calling gfarm_daemon(),
 	 * because it changes pid.
 	 */
 	write_pid();
+gflog_info(GFARM_MSG_UNFIXED, "main <3>");
 
 	/* after gflog_syslog_open/gfarm_daemon, but before pthread_create() */
 	if (!gfarm_metadb_server_nfs_root_squash_support) {
@@ -2012,6 +2026,7 @@ main(int argc, char **argv)
 	 * We don't want SIGPIPE, but want EPIPE on write(2)/close(2).
 	 */
 	gfarm_sigpipe_ignore();
+gflog_info(GFARM_MSG_UNFIXED, "main <4>");
 
 	/*
 	 * Initialize a signal mask before creating threads, since
@@ -2027,6 +2042,7 @@ main(int argc, char **argv)
 	 * since db_terminate() which is called by sigs_handler() requires
 	 * that 'db_thread' is (eventually) running.
 	 */
+gflog_info(GFARM_MSG_UNFIXED, "main <5>");
 	e = create_detached_thread(db_thread, NULL);
 	if (e != GFARM_ERR_NO_ERROR)
 		gflog_fatal(GFARM_MSG_1000211,
@@ -2039,6 +2055,8 @@ main(int argc, char **argv)
 	 * because applying journal to DB and loading DB to memory
 	 * may take a lot of time.
 	 */
+gflog_info(GFARM_MSG_UNFIXED, "main <6>");
+gflog_info(GFARM_MSG_UNFIXED, "calling create_detached_thread(sigs_handler, &sigs);");
 	e = create_detached_thread(sigs_handler, &sigs);
 	if (e != GFARM_ERR_NO_ERROR)
 		gflog_fatal(GFARM_MSG_1000210,

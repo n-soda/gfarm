@@ -274,7 +274,7 @@ static int
 process_del_ref(struct process *process, struct peer *peer, int from_client)
 {
 	gfarm_error_t e;
-	int fd, in_slave = peer == NULL;
+	int fd, keep_opened = 0, in_slave = peer == NULL;
 	gfarm_mode_t mode;
 	struct file_opening *fo;
 	struct process_link *pl, *pln;
@@ -284,10 +284,12 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 	for (fd = 0; fd < process->nfiles; fd++) {
 		fo = process->filetab[fd];
 		if (fo != NULL) {
+gflog_info(GFARM_MSG_UNFIXED, "fd=%d, peer=%p", fd, peer);
 			mode = inode_get_mode(fo->inode);
 			process_close_or_abort_file(
 			    process, peer, from_client, fd, 1, in_slave, NULL,
 			    diag);
+gflog_info(GFARM_MSG_UNFIXED, "pid=%lld fd=%d fo=%p", (long long)process->pid, fd, process->filetab[fd]);
 		}
 	}
 
@@ -296,12 +298,13 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 
 	/* sanity check: process terminated, make sure all files are closed */
 	for (fd = 0; fd < process->nfiles; fd++) {
+gflog_info(GFARM_MSG_UNFIXED, "pid=%lld, fd=%d, peer=%p", (long long)process->pid, fd, peer);
 		fo = process->filetab[fd];
 		if (fo != NULL) {
 			mode = inode_get_mode(fo->inode);
-			/* sanity check: this shouldn't happen */
-			gflog_warning(GFARM_MSG_1004466,
-			    "%s: minor internal error "
+			/* sanity check: this happen if keep_opened */
+			gflog_info(GFARM_MSG_1004466,
+			    "%s: process terminated, but fd is kept opened "
 			    "pid:%lld fd:%d inode:%llu:%llu (mode:0%o) "
 			    "remains opened, closed by %s@%s, spool is %s, "
 			    "NOTE: GFM_PROTO_REVOKE_GFSD_ACCESS is%s called",
@@ -316,8 +319,12 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 			    peer_get_hostname(fo->u.f.spool_opener),
 			    (fo->flag & GFARM_FILE_GFSD_ACCESS_REVOKED) != 0 ?
 			    "" : " not");
+#if 1 /* for keep_opened */
+			keep_opened = 1;
+#else
 			inode_close_read(fo, NULL, in_slave, NULL, diag);
 			file_opening_free(fo, mode);
+#endif
 		}
 	}
 	free(process->filetab);
@@ -333,7 +340,8 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 	process->siblings.next->prev = process->siblings.prev;
 	process->siblings.prev->next = process->siblings.next;
 
-	if (!in_slave && (process->flags & PROCESS_PROPAGATED) != 0 &&
+	if (!in_slave && !keep_opened &&
+	    (process->flags & PROCESS_PROPAGATED) != 0 &&
 	    (e = db_process_free(process->pid)) != GFARM_ERR_NO_ERROR)
 		gflog_error(GFARM_MSG_UNFIXED, "db_process_free(%lld): %s",
 		    (long long)process->pid, gfarm_error_string(e));
@@ -1232,20 +1240,27 @@ process_reopen_file(struct process *process,
 		gflog_debug(GFARM_MSG_1001627,
 			"process_get_file_opening() failed: %s",
 			gfarm_error_string(e));
+gflog_info(GFARM_MSG_1001627, "process_get_file_opening() failed: %s", gfarm_error_string(e));
 		return (e);
 	}
 	if (!inode_is_file(fo->inode)) { /* i.e. is a directory */
 		gflog_debug(GFARM_MSG_1001628,
 			"inode is not file");
+gflog_info(GFARM_MSG_1001628, "inode is not file");
 		return (GFARM_ERR_OPERATION_NOT_PERMITTED);
 	}
 
 	if (spool_host == NULL) { /* i.e. from_client */
-		if (fo->opener != NULL || fo->opener != peer) {
+		if (fo->opener != NULL && fo->opener != peer) {
 			/* already REOPENed */
-			gflog_debug(GFARM_MSG_UNFIXED,
-				"pid %lld, descriptor %d already reopened",
-			(long long)process->pid, fd);
+/*XXX debug->info*/
+			gflog_info(GFARM_MSG_UNFIXED,
+			    "pid %lld, descriptor %d: "
+                            "opener:%p (%s), peer:%p (%s): already reopened",
+			    (long long)process->pid, fd,
+			    fo->opener, peer_get_hostname(fo->opener),
+			    peer, peer == NULL ? "(null)" :
+			    peer_get_hostname(peer));
 			return (GFARM_ERR_OPERATION_NOT_PERMITTED);
 		}
 		fo->opener = peer;
@@ -1264,6 +1279,8 @@ process_reopen_file(struct process *process,
 		/* already REOPENed */
 		gflog_debug(GFARM_MSG_1001629,
 			"file already reopened");
+gflog_info(GFARM_MSG_1001629, "file already reopened");
+
 		return (GFARM_ERR_OPERATION_NOT_PERMITTED);
 	}
 	if (inode_new_generation_is_pending(fo->inode)) {
@@ -1272,6 +1289,8 @@ process_reopen_file(struct process *process,
 		    "process_reopen_file: new_generation pending %lld:%lld",
 		    (long long)inode_get_number(fo->inode),
 		    (long long)inode_get_gen(fo->inode));
+gflog_info(GFARM_MSG_1002240, "process_reopen_file: new_generation pending %lld:%lld", (long long)inode_get_number(fo->inode), (long long)inode_get_gen(fo->inode));
+
 		return (GFARM_ERR_RESOURCE_TEMPORARILY_UNAVAILABLE);
 	}
 	no_replica = inode_has_no_replica(fo->inode);
@@ -1372,6 +1391,8 @@ process_peer_is_the_spool_opener(struct process *process,
 		    peer_get_hostname(fo->u.f.spool_opener),
 		    (fo->flag & GFARM_FILE_GFSD_ACCESS_REVOKED) != 0 ?
 		    "" : " not");
+		if (fo->u.f.spool_opener == NULL) /* failover? maybe */
+			return (1);
 		return (0);
 	}
 	return (1);
@@ -1421,7 +1442,25 @@ process_close_or_abort_file(struct process *process,
 		if (peer != NULL &&
 		    !process_peer_is_the_spool_opener(process, peer, fd, fo,
 		    mode, diag))
+{
+gflog_info(GFARM_MSG_UNFIXED, "gfsd on %s@%s NOT keep_opened (pid:%lld fd:%d). inode %llu:%llu: operation not permitted",
+peer == NULL ? "<not-opened>" : peer_get_username(peer), peer == NULL ? "<not-opened>" :
+peer_get_hostname(peer),
+(long long)process->pid, (int)fd,
+(long long)inode_get_number(fo->inode),
+(long long)inode_get_gen(fo->inode));
 			return (GFARM_ERR_OPERATION_NOT_PERMITTED);
+}
+gflog_info(GFARM_MSG_UNFIXED, "gfsd on %s@%s check keep_opened (pid:%lld fd:%d). inode %llu:%llu: W_OK:%d new_gen_pending:%d, aborted:%d",
+peer == NULL ? "<not-opened>" : peer_get_username(peer), peer == NULL ? "<not-opened>" :
+peer_get_hostname(peer),
+(long long)process->pid, (int)fd,
+(long long)inode_get_number(fo->inode),
+(long long)inode_get_gen(fo->inode),
+(accmode_to_op(fo->flag) & GFS_W_OK) != 0,
+peer != NULL && peer_get_pending_new_generation_by_fd(peer),
+aborted
+);
 
 		/* i.e. REOPENed file, and I am a gfsd. */
 		if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0) {
@@ -1465,7 +1504,21 @@ process_close_or_abort_file(struct process *process,
 			}
 		}
 		if (keep_opened)
+{
+gflog_info(GFARM_MSG_UNFIXED, "gfsd on %s@%s keep_opened (pid:%lld fd:%d). inode %llu:%llu",
+peer == NULL ? "<not-opened>" : peer_get_username(peer), peer == NULL ? "<not-opened>" :
+peer_get_hostname(peer),
+(long long)process->pid, (int)fd,
+(long long)inode_get_number(fo->inode),
+(long long)inode_get_gen(fo->inode));
 			return (GFARM_ERR_NO_ERROR);
+}
+gflog_info(GFARM_MSG_UNFIXED, "gfsd on %s@%s NOT keep_opened (pid:%lld fd:%d). inode %llu:%llu",
+peer == NULL ? "<not-opened>" : peer_get_username(peer), peer == NULL ? "<not-opened>" :
+peer_get_hostname(peer),
+(long long)process->pid, (int)fd,
+(long long)inode_get_number(fo->inode),
+(long long)inode_get_gen(fo->inode));
 		if (fo->opener != NULL) {
 			/*
 			 * a gfsd is closing a REOPENed file,
@@ -1613,7 +1666,10 @@ process_close_file_write(struct process *process, struct peer *peer, int fd,
 	mode = inode_get_mode(fo->inode);
 	if (!process_peer_is_the_spool_opener(process, peer, fd, fo,
 	    mode, diag))
+{
+gflog_info(GFARM_MSG_UNFIXED, "process_peer_is_the_spool_opener failed pid=%lld fd=%d", (long long)process->pid, fd);
 		return (GFARM_ERR_OPERATION_NOT_PERMITTED);
+}
 
 	if ((accmode_to_op(fo->flag) & GFS_W_OK) == 0) {
 		gflog_debug(GFARM_MSG_1001643,

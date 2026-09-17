@@ -910,6 +910,13 @@ gfarm_id_free(struct gfarm_id_table *idtab, gfarm_int32_t id)
 }
 
 #ifdef TEST
+
+void each(void *cloure, struct gfarm_id_table *idtab,
+	gfarm_int32_t id, void *data)
+{
+	printf("%d: %d\n", id, *(int *)data);
+}
+
 void
 free_test(void *closure, gfarm_int32_t id, void *p)
 {
@@ -966,6 +973,8 @@ main()
 		} else if (strcmp(command, "dump") == 0 ||
 		    strcmp(command, "d") == 0) {
 			gfarm_id_table_debug_dump(id_table);
+		} else if (strcmp(command, "foreach") == 0) {
+			gfarm_id_table_foreach(id_table, NULL, each);
 		} else if (strcmp(command, "alloc") == 0 ||
 		    strcmp(command, "a") == 0) {
 			if ((p = gfarm_id_alloc(id_table, &n)) == NULL)

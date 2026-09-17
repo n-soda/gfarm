@@ -3148,17 +3148,21 @@ gfm_server_reopen(struct peer *peer, int from_client, int skip,
 	giant_lock();
 	read_only = gfarm_read_only_mode();
 
+gflog_info(GFARM_MSG_UNFIXED, "reopen entry");
 	if (!from_client && (spool_host = peer_get_host(peer)) == NULL) {
 		gflog_debug(GFARM_MSG_1001935, "operation is not permitted");
+gflog_info(GFARM_MSG_1001935, "operation is not permitted");
 		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
 	} else if ((process = peer_get_process(peer)) == NULL) {
 		gflog_debug(GFARM_MSG_1001937, "peer_get_process() failed");
+gflog_info(GFARM_MSG_1001937, "peer_get_process() failed");
 		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
 	} else if ((e = peer_fdpair_get_current(peer, &fd)) !=
 	    GFARM_ERR_NO_ERROR) {
 		gflog_debug(GFARM_MSG_1001938,
 			"peer_fdpair_get_current() failed: %s",
 			gfarm_error_string(e));
+gflog_info(GFARM_MSG_1001938, "peer_fdpair_get_current() failed: %s", gfarm_error_string(e));
 	} else if (read_only &&
 	    process_fd_is_for_modification(
 	    process, peer, fd, &inum, &gen, &flags, diag)) {
@@ -3166,12 +3170,15 @@ gfm_server_reopen(struct peer *peer, int from_client, int skip,
 		    "flags 0x%x during read_only",
 		    diag, peer_get_username(peer), peer_get_hostname(peer),
 		    (long long)inum, (long long)gen, flags);
+gflog_info(GFARM_MSG_1005192, "%s (%s@%s) for inode %llu:%llu" "flags 0x%x during read_only", diag, peer_get_username(peer), peer_get_hostname(peer), (long long)inum, (long long)gen, flags);
 		e = GFARM_ERR_READ_ONLY_FILE_SYSTEM;
 	} else {
+gflog_info(GFARM_MSG_UNFIXED, "%s: pid %lld, fd %d, from_client %d, ", diag, (long long)process_get_pid(process), fd, from_client);
 		if (!read_only && db_begin(diag) == GFARM_ERR_NO_ERROR)
 			transaction = 1;
 		e = process_reopen_file(process, peer, spool_host, fd,
 		    &inum, &gen, &mode, &flags, &to_create, diag);
+gflog_info(GFARM_MSG_1005192, "%s (%s@%s) for inode %llu:%llu" "flags 0x%x: reopen: %s", diag, peer_get_username(peer), peer_get_hostname(peer), (long long)inum, (long long)gen, flags, gfarm_error_string(e));
 		if (transaction)
 			db_end(diag);
 		if (e == GFARM_ERR_RESOURCE_TEMPORARILY_UNAVAILABLE) {
@@ -3438,6 +3445,7 @@ gfm_server_close_write_common(const char *diag,
 		e = process_close_file_write(process, peer, fd, close_mode,
 		    size, atime, mtime,
 		    flagsp, inump, old_genp, new_genp, trace_logp, diag);
+gflog_info(GFARM_MSG_UNFIXED, "process_close_file_write pid=%lld fd=%d: %s", (long long)process_get_pid(process), fd, gfarm_error_string(e));
 		if (transaction)
 			db_end(diag);
 
