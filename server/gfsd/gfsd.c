@@ -1464,7 +1464,7 @@ gfs_server_process_reset(struct gfp_xdr *client)
 				    diag,
 				    (long long)current_pid, (long long)pid,
 				    failover_count, client_failover_count,
-			    gfarm_error_string(e));
+				    gfarm_error_string(e));
 				if ((e = gfm_client_process_free(gfm_server))
 				    != GFARM_ERR_NO_ERROR) {
 					gflog_error(GFARM_MSG_1004113,
@@ -1473,8 +1473,6 @@ gfs_server_process_reset(struct gfp_xdr *client)
 				}
 				continue;
 			}
-			gflog_notice(GFARM_MSG_1003401,
-			    "gfm_client_process_set: %s", gfarm_error_string(e));
 			gflog_notice(GFARM_MSG_UNFIXED,
 			    "%s: pid=%lld->%lld failover_count=%d->%d: %s",
 			    diag, (long long)current_pid, (long long)pid,
@@ -1493,22 +1491,14 @@ gfs_server_process_reset(struct gfp_xdr *client)
 		    diag, (long long)current_pid, (long long)pid,
 		    failover_count, client_failover_count,
 		    gfarm_error_string(e));
-		if (!IS_CONNECTION_ERROR(e))
-			break;
-		/* gfmd failed over after close_all_fd() */
-		if (i == 0) {
-			reconnect_gfm_server_for_failover(diag);
-			failedover = 1;
-		}
 	}
 #if 0 /* currently, no need to tell the failedover flag to the client */
-		if (failedover && e == GFARM_ERR_NO_ERROR)
-			e = some other code,
-			    instead of GFARM_ERR_GFMD_FAILED_OVER;
+	if (failedover && e == GFARM_ERR_NO_ERROR)
+		e = some other code,
+		    instead of GFARM_ERR_GFMD_FAILED_OVER;
 #else
-		(void)failedover;
+	(void)failedover;
 #endif
-	}
 	gfs_server_put_reply(client, diag, e, "");
 }
 
