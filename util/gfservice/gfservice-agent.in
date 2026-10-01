@@ -12,6 +12,9 @@
 # PATH
 PATH=@bindir@:/usr/bin:/bin
 
+# Gfarm installation directory
+sysconfdir="@sysconfdir@"
+
 # Program name.
 PROGRAM=gfservice-agent
 
@@ -56,6 +59,11 @@ log_error()
 {
 	echo "$PROGRAM@$HOSTID: error: $@" 1>&2
 	exit 1
+}
+
+use_systemd()
+{
+	[ -x /bin/systemctl -a -z "$CONFIG_PREFIX" ]
 }
 
 #
@@ -133,7 +141,7 @@ set_gfmd_params()
 
 	[ "X$AUTH_TYPES" = X ] \
 		&& log_error "failed to get auth type"
-	log_debug "set_gfmd_params: set AUTH_TYPE=$AUTH_TYPES"
+	log_debug "set_gfmd_params: set AUTH_TYPES=$AUTH_TYPES"
 
 	[ "X$GFARM_CONF" = X ] \
 		&& log_error "failed to get gfarm client conf file"
@@ -311,7 +319,7 @@ get_pgsql_status()
 {
 	log_debug "get_pgsql_status"
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		systemctl status `basename $BACKEND_RC` > /dev/null 2>&1
 		RESULT=$?
 	else
@@ -336,7 +344,7 @@ get_gfmd_status()
 {
 	log_debug "get_gfmd_status"
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		systemctl status `basename $GFMD_RC` > /dev/null 2>&1
 		RESULT=$?
 	else
@@ -361,7 +369,7 @@ get_gfsd_status()
 {
 	log_debug "get_gfsd_status"
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		systemctl status `basename $GFSD_RC` > /dev/null 2>&1
 		RESULT=$?
 	else
@@ -385,7 +393,7 @@ start_backend_db()
 {
 	log_debug "start_backend_db"
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		log_debug "start_backend_db: execute gfservice-timeout $1" \
 			"systemctl start `basename $BACKEND_RC`"
 		gfservice-timeout $1 systemctl start \
@@ -407,7 +415,7 @@ stop_backend_db()
 
 	TIMEOUT=`get_param timeout || echo 'no'`
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		log_debug "stop_backend_db: execute gfservice-timeout $1" \
 			"systemctl stop `basename $BACKEND_RC`"
 		gfservice-timeout $1 systemctl stop \
@@ -429,7 +437,7 @@ start_gfmd()
 
 	TIMEOUT=`get_param timeout || echo 'no'`
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		log_debug "start_gfmd: execute gfservice-timeout $1" \
 			"systemctl start `basename $GFMD_RC`"
 		gfservice-timeout $1 systemctl start \
@@ -453,7 +461,7 @@ slavestart_gfmd()
 
 	TIMEOUT=`get_param timeout || echo 'no'`
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		log_debug "slavestart_gfmd: execute gfservice-timeout $1" \
 			"systemctl start `basename $GFMD_RC`"
 		# NOTE: "systemctl slavestart" is not defined.
@@ -479,7 +487,7 @@ stop_gfmd()
 
 	TIMEOUT=`get_param timeout || echo 'no'`
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		log_debug "stop_gfmd: execute gfservice-timeout $1" \
 			"systemctl stop `basename $GFMD_RC`"
 		gfservice-timeout $1 systemctl stop \
@@ -503,7 +511,7 @@ kill_gfmd()
 
 	TIMEOUT=`get_param timeout || echo 'no'`
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		log_debug "start_gfmd: execute gfservice-timeout $1" \
 			"systemctl kill `basename $GFMD_RC`"
 		gfservice-timeout $1 systemctl kill \
@@ -527,7 +535,7 @@ start_gfsd()
 
 	TIMEOUT=`get_param timeout || echo 'no'`
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		log_debug "start_gfsd: execute gfservice-timeout $1" \
 			"systemctl start `basename $GFSD_RC`"
 		gfservice-timeout $1 systemctl start \
@@ -551,7 +559,7 @@ stop_gfsd()
 
 	TIMEOUT=`get_param timeout || echo 'no'`
 
-	if [ -x /bin/systemctl ]; then
+	if use_systemd; then
 		log_debug "stop_gfsd: execute gfservice-timeout $1" \
 			"systemctl stop `basename $GFSD_RC`"
 		gfservice-timeout $1 systemctl stop \
@@ -805,9 +813,22 @@ subcmd_config_gfarm()
 	eval config-gfarm $CONFIG_GFARM_OPTIONS
 	[ $? -ne 0 ] && log_error "config-gfarm failed"
 
-	case $AUTH_TYPES in
-	gsi|gsi_auth) set_conf $GFMD_CONF 'auth enable sharedsecret' '*';;
-	esac
+	only_sasl=true
+	for t in $AUTH_TYPES; do
+		case $t in
+		sasl|sasl_auth)
+			;;
+		*)
+			only_sasl=false
+			;;
+		esac
+	done
+
+	# Enable TLS client certificate authentication if only SASL is used
+	if $only_sasl; then
+		set_conf "$GFMD_CONF" 'auth enable tls_client_certificate' '*'
+		set_conf "$GFARM_CONF" 'auth enable tls_client_certificate' '*'
+	fi
 
 	TIMEOUT=`get_param timeout || echo 'no'`
 	stop_gfmd $TIMEOUT
@@ -830,9 +851,22 @@ subcmd_config_gfarm_master()
 	[ $? -ne 0 ] && log_error "config-gfarm failed"
 
 	unset_conf $GFMD_CONF metadb_server_force_slave
-	case $AUTH_TYPES in
-	gsi|gsi_auth) set_conf $GFMD_CONF 'auth enable sharedsecret' '*';;
-	esac
+	only_sasl=true
+	for t in $AUTH_TYPES; do
+		case $t in
+		sasl|sasl_auth)
+			;;
+		*)
+			only_sasl=false
+			;;
+		esac
+	done
+
+	# Enable TLS client certificate authentication if only SASL is used
+	if $only_sasl; then
+		set_conf "$GFMD_CONF" 'auth enable tls_client_certificate' '*'
+		set_conf "$GFARM_CONF" 'auth enable tls_client_certificate' '*'
+	fi
 
 	set_conf $GFARM_CONF metadb_server_list \
 		"${BACKEND_HOSTNAME}:${GFMD_PORT}"
@@ -868,20 +902,12 @@ subcmd_unconfig_gfarm()
 {
 	log_debug "subcmd_unconfig_gfarm"
 
-	TIMEOUT=`get_param timeout || echo 'no'`
-	[ -f $GFMD_RC ] && stop_gfmd $TIMEOUT > /dev/null 2>&1
-	[ -f $BACKEND_RC ] && stop_backend_db $TIMEOUT > /dev/null 2>&1
-	rm -f $GFMD_PID_FILE
-	rm -f $GFARM_CONF
-	rm -f $GFMD_CONF
-	rm -f $GFMD_RC
-	rm -f $BACKEND_RC
-	rm -f $GFMD_FAILOVER_CONF
-	rm -f $GFMD_FAILOVER_AGENT_CONF
-	rm -f -r $METADATA_DIR
-	rm -f -r $JOURNAL_DIR
-	[ "X$GFSD_CONF" != X ] && rm -f $GFSD_CONF
-	[ "X$USERMAP_FILE" != X ] && rm -f $USERMAP_FILE
+	if [ X"$CONFIG_PREFIX" != X ]; then
+		: ${GFARM_CONF_DIR:="$CONFIG_PREFIX/etc"}
+	else
+		: ${GFARM_CONF_DIR:="$sysconfdir"}
+	fi
+	"$GFARM_CONF_DIR/unconfig-gfarm.sh" -f
 
 	log_debug "end subcmd_unconfig_gfarm"
 }
@@ -894,14 +920,12 @@ subcmd_unconfig_gfsd()
 {
 	log_debug "subcmd_unconfig_gfsd"
 
-	TIMEOUT=`get_param timeout || echo 'no'`
-	[ -f $GFSD_RC ] && stop_gfsd $TIMEOUT > /dev/null 2>&1
-	rm -f $GFSD_PID_FILE
-	rm -f $GFARM_CONF
-	rm -f $GFSD_RC
-	rm -f -r $SPOOL_DIR
-	[ "X$GFSD_CONF" != X ] && rm -f $GFSD_CONF
-	[ "X$USERMAP_FILE" != X ] && rm -f $USERMAP_FILE
+	if [ X"$CONFIG_PREFIX" != X ]; then
+		: ${GFARM_CONF_DIR:="$CONFIG_PREFIX/etc"}
+	else
+		: ${GFARM_CONF_DIR:="$sysconfdir"}
+	fi
+	"$GFARM_CONF_DIR/unconfig-gfsd.sh" -f --quiet
 
 	log_debug "end subcmd_unconfig_gfsd"
 }
@@ -915,6 +939,11 @@ subcmd_unconfig_client()
 	log_debug "subcmd_unconfig_client"
 
 	rm -f $GFARM_CONF
+
+	# XXX FIXME:
+	# Executed as root via ssh, so $HOME is /root.
+	# Client user's ~/.gfarm_shared_key is not removed.
+	# Should remove the key as the actual user.
 	rm -f $SHARED_KEY_FILE
 
 	log_debug "end subcmd_unconfig_client"
@@ -1306,7 +1335,7 @@ subcmd_grid_proxy_init()
 	if [ "X$GLOBUS_LOCATION" = X ]; then
 		GRID_PROXY_INIT=grid-proxy-init
 	else
-		GRID_PROXY_INIT="$GLOBUS_LOCATION/grid-proxy-init"
+		GRID_PROXY_INIT="$GLOBUS_LOCATION/bin/grid-proxy-init"
 	fi
 
 	ARGS=`get_param args`

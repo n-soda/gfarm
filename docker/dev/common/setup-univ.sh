@@ -44,6 +44,7 @@ USERADD="useradd -m -s "$MY_SHELL" -U -K UID_MIN=1000 -K GID_MIN=1000"
 SASL_DOMAIN=$(echo "$GFDOCKER_HOSTNAME_SUFFIX" | sed 's/^\.//')
 SASL_PASSWORD_BASE=PASS-
 ca_key_pass=PASSWORD
+SUDOERS_D=/etc/sudoers.d/gfarm
 GRID_MAPFILE=/etc/grid-security/grid-mapfile
 PRIMARY_HOME=/home/${GFDOCKER_PRIMARY_USER}
 TENANT_ADMIN_HOME=/home/${GFDOCKER_TENANT_ADMIN_USER}
@@ -188,8 +189,8 @@ openssl pkcs12 -export -in "/etc/grid-security/${name}cert.pem" \
   -passout pass:"$ca_key_pass"
 
 base_ssh_config="${BASEDIR}/ssh_config"
-echo >> /etc/sudoers
-echo '# for Gfarm' >> /etc/sudoers
+echo >> "${SUDOERS_D}"
+echo '# for Gfarm' >> "${SUDOERS_D}"
 i=0
 for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
  for u in $(seq 1 "$GFDOCKER_NUM_USERS"); do
@@ -198,12 +199,12 @@ for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
   # User account is made by caller of this script.
   # see "Usage (Dockerfile)" for details.
   echo "${user} ALL=(root, _gfarmfs, _gfarmmd) NOPASSWD: /usr/bin/gfservice-agent" \
-    >> /etc/sudoers
+    >> "${SUDOERS_D}"
   echo "${user} ALL=(root, _gfarmfs, _gfarmmd) NOPASSWD: /usr/local/bin/gfservice-agent" \
-    >> /etc/sudoers
-  echo "### for regress" >> /etc/sudoers
-  echo "${user} ALL=(_gfarmfs) NOPASSWD: ALL" >> /etc/sudoers
-  echo "${user} ALL=NOPASSWD: ALL" >> /etc/sudoers
+    >> "${SUDOERS_D}"
+  echo "### for regress" >> "${SUDOERS_D}"
+  echo "${user} ALL=(_gfarmfs) NOPASSWD: ALL" >> "${SUDOERS_D}"
+  echo "${user} ALL=NOPASSWD: ALL" >> "${SUDOERS_D}"
   ssh_dir="/home/${user}/.ssh"
   mkdir -m 0700 -p "$ssh_dir"
   ssh-keygen -f "${ssh_dir}/key-gfarm" -N ''
@@ -254,7 +255,6 @@ for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
   i=$((i + 1))
   unix_username="${GFDOCKER_USERNAME_PREFIX}${i}"
   guser="$(gfuser_from_index $t $u)"
-  tenant_user_suffix="$(gftenant_user_suffix_from_index $t)"
   gfservicerc="/home/${unix_username}/.gfservice"
   cp "$base_gfservicerc" "$gfservicerc"
   chmod 0644 "$gfservicerc"
@@ -272,12 +272,12 @@ for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
   chmod 0600 "$gfarm2rc_passwd"
   chown "${unix_username}:${unix_username}" "$gfarm2rc_passwd"
   echo >>"$gfarm2rc_passwd" \
-	"sasl_user \"${guser}@${SASL_DOMAIN}${tenant_user_suffix}\""
+	"sasl_user \"${unix_username}@${SASL_DOMAIN}\""
   echo >>"$gfarm2rc_passwd" \
 	"sasl_password \"${SASL_PASSWORD_BASE}${unix_username}\""
   if type saslpasswd2 2>/dev/null; then
     echo "${SASL_PASSWORD_BASE}${unix_username}" |
-      saslpasswd2 -c -u "${SASL_DOMAIN}${tenant_user_suffix}" "${guser}"
+      saslpasswd2 -c -u "${SASL_DOMAIN}" "${unix_username}"
     if [ "${sasl_db:-NOT_SET}" = "NOT_SET" ]; then
       sasl_db=/etc/sasl2/sasldb2
       if [ ! -f ${sasl_db} ]; then
@@ -287,7 +287,7 @@ for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
     chown _gfarmfs "${sasl_db}"
   fi
   gfarm2rc_sasl_xoauth2="${gfarm2rc}.sasl.xoauth2"
-  echo "sasl_user \"${guser}${tenant_user_suffix}\"" >>"$gfarm2rc_sasl_xoauth2"
+  echo "sasl_user \"${unix_username}\"" >>"$gfarm2rc_sasl_xoauth2"
   chown "${unix_username}:${unix_username}" "$gfarm2rc_sasl_xoauth2"
  done
 done
@@ -357,16 +357,16 @@ systemctl enable sshd || :
 
 ### setup autofs
 GFARM2FS_OPT="auto_uid_min=40000,auto_uid_max=50000,auto_gid_min=40000,auto_gid_max=50000"
-cat <<EOF | sudo dd of=/etc/auto.gfarm
+cat <<EOF | ${SUDO} dd of=/etc/auto.gfarm
 ROOT -fstype=gfarm2fs,${GFARM2FS_OPT},gfarmfs_root=/,allow_other,default_permissions,username=${user1} :/home/${user1}/.gfarm2rc
 * -fstype=gfarm2fs,${GFARM2FS_OPT},allow_root,username=& :/home/&/.gfarm2rc
 EOF
 
-cat <<EOF | sudo dd oflag=append conv=notrunc of=/etc/auto.master
+cat <<EOF | ${SUDO} dd oflag=append conv=notrunc of=/etc/auto.master
 /gfarm /etc/auto.gfarm --debug
 EOF
 
-cat <<EOF | sudo dd oflag=append conv=notrunc of=/etc/fuse.conf
+cat <<EOF | ${SUDO} dd oflag=append conv=notrunc of=/etc/fuse.conf
 user_allow_other
 EOF
 

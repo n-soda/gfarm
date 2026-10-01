@@ -26,6 +26,7 @@ esac
 
 BUILD_ONLY=false
 install_option=all
+MAKE_CLEAN=false
 while [ $# -gt 0 ]
 do
 	case $1 in
@@ -33,6 +34,7 @@ do
 	tsan) OPTFLAGS='-g -Og -Wall -fsanitize=thread -fsanitize-recover=all -fno-omit-frame-pointer -fno-common';;
 	single) install_option=$1 ;;
 	build_only) BUILD_ONLY=true ;;
+	clean) MAKE_CLEAN=true ;;
 	*) exit 1 ;;
 	esac
 	shift
@@ -42,6 +44,7 @@ ARCH_GUESS=gftool/config-gfarm/gfarm.arch.guess
 [ -f $ARCH_GUESS ] || ARCH_GUESS=gfarm.arch.guess
 BUILDDIR=build-$($ARCH_GUESS)
 
+if $MAKE_CLEAN; then rm -rf $BUILDDIR; fi
 if [ -d $BUILDDIR ]; then
 	cd $BUILDDIR
 else

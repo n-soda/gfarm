@@ -1,9 +1,7 @@
-gfrm $subsubdir/$fileX
-gfrmdir $subsubdir
-gfrm $subdir/$fileX
-gfrmdir $subdir
-gfrmdir $subdir2
-gfrm $fileX
+# Do not use gfrm here to prevent gfarm2fs cache inconsistency:
+rm -rf $fusemnt/$subdir
+rm -rf $fusemnt/$subdir2
+rm -f $fusemnt/$fileX
 gfxattr -rx / $attrname
 gfxattr -rx / $attrname2
 
@@ -12,12 +10,8 @@ echo '<b>bbb</b>' > $attrfile2
 
 # xml xattr find test - 1.1
 {
-	gffindxmlattr /a / > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo -n "" > $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a /
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -29,12 +23,8 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a / > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a /
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -46,12 +36,8 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /b / > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo -n "" > $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /b /
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -63,13 +49,9 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a / > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/	$attrname2" >> $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a /
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -81,12 +63,8 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a / > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a /
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -102,13 +80,9 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a / > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/$fileX	$attrname" >> $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a /
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -120,12 +94,8 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a /$subdir > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo -n "" > $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a /$subdir
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -139,23 +109,15 @@ echo '<b>bbb</b>' > $attrfile2
 	fi
 	#
 	# abs path
-	gffindxmlattr /a /$subdir > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/$subdir	$attrname" > $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a /$subdir
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
 	#
 	# relative path
-	gffindxmlattr /a $subdir > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "$subdir	$attrname" > $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a $subdir
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -163,14 +125,12 @@ echo '<b>bbb</b>' > $attrfile2
 
 # xml xattr find test - 2.3
 {
-	gffindxmlattr /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/$subdir	$attrname" >> $nameslist
 	echo "/$fileX	$attrname" >> $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -182,12 +142,8 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a /$subsubdir > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo -n "" > $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a /$subsubdir
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -199,12 +155,8 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a /$subsubdir > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/$subsubdir	$attrname" > $nameslist
-	cmp $nameslist $getfile
+	wait_for_command_output $getfile $nameslist -- gffindxmlattr /a /$subsubdir
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -212,15 +164,13 @@ echo '<b>bbb</b>' > $attrfile2
 
 # xml xattr find test - 3.3
 {
-	gffindxmlattr /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/$subdir	$attrname" >> $nameslist
 	echo "/$subsubdir	$attrname" >> $nameslist
 	echo "/file1	$attrname" >> $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -228,12 +178,10 @@ echo '<b>bbb</b>' > $attrfile2
 
 # xml xattr find test - 3.4
 {
-	gffindxmlattr -d 0 /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr -d 0 /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -241,14 +189,12 @@ echo '<b>bbb</b>' > $attrfile2
 
 # xml xattr find test - 3.5
 {
-	gffindxmlattr -d 1 /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/$subdir	$attrname" >> $nameslist
 	echo "/file1	$attrname" >> $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr -d 1 /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -256,15 +202,13 @@ echo '<b>bbb</b>' > $attrfile2
 
 # xml xattr find test - 3.6
 {
-	gffindxmlattr -d 2 /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/$subdir	$attrname" >> $nameslist
 	echo "/$subsubdir	$attrname" >> $nameslist
 	echo "/file1	$attrname" >> $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr -d 2 /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -277,11 +221,9 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -293,14 +235,12 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/$subdir	$attrname" >> $nameslist
 	echo "/$fileX	$attrname" >> $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -312,14 +252,12 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/$subsubdir	$attrname" >> $nameslist
 	echo "/$fileX	$attrname" >> $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -331,15 +269,13 @@ echo '<b>bbb</b>' > $attrfile2
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
-	gffindxmlattr /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/$subdir	$attrname" >> $nameslist
 	echo "/$subsubdir	$attrname" >> $nameslist
 	echo "/file1	$attrname" >> $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -351,15 +287,13 @@ echo '<b>bbb</b>' > $attrfile2
 
 # xml xattr find test - 6.1
 {
-	gffindxmlattr -F , /a / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/,$attrname" > $nameslist
 	echo "/$subdir,$attrname" >> $nameslist
 	echo "/$subsubdir,$attrname" >> $nameslist
 	echo "/file1,$attrname" >> $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c 'gffindxmlattr -F , /a / | sort'
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi
@@ -368,15 +302,13 @@ echo '<b>bbb</b>' > $attrfile2
 # xml xattr find test - 6.2
 {
 	echo '/a' > $attrfile
-	gffindxmlattr -f $attrfile / | sort > $getfile 
-	if [ $? != 0 ]; then
-		exit $exit_fail
-	fi
 	echo "/	$attrname" > $nameslist
 	echo "/$subdir	$attrname" >> $nameslist
 	echo "/$subsubdir	$attrname" >> $nameslist
 	echo "/file1	$attrname" >> $nameslist
-	sort $nameslist | cmp - $getfile
+	sort $nameslist -o $nameslist
+	wait_for_command_output $getfile $nameslist -- \
+		sh -c "gffindxmlattr -f '$attrfile' / | sort"
 	if [ $? != 0 ]; then
 		exit $exit_fail
 	fi

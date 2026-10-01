@@ -5,7 +5,7 @@
 
 <refentry id="gfservice.conf.5">
 
-<refentryinfo><date>25 Feb 2026</date></refentryinfo>
+<refentryinfo><date>14 May 2026</date></refentryinfo>
 
 <refmeta>
 <refentrytitle>gfservice.conf</refentrytitle>
@@ -160,6 +160,8 @@ gfmd サーバー上で <command moreinfo="none">gfservice-agent</command> コ�
 デフォルト値は、空文字列 (オプションなし) です。
 <command moreinfo="none">gfservice</command> は <command moreinfo="none">config-gfarm</command> サブコマンド
 およびその他多くのサブコマンドを実行する際に、この変数を参照します。
+認証タイプとして "sasl" のみが指定されている場合、全てのホストのgfarm2.confファイルに
+"tls_client_certificate" も認証タイプとして追加されます。
 <command moreinfo="none">config-gfarm</command> が完了した後であっても、この変数の宣言を
 削除したり、編集したりはしないで下さい。
 </para>
@@ -177,15 +179,17 @@ gfmd サーバー上で <command moreinfo="none">gfservice-agent</command> コ�
 </varlistentry>
 
 <varlistentry>
-<term><varname>gfmd<replaceable>n</replaceable>_AUTH_TYPE</varname></term>
+<term><varname>gfmd<replaceable>n</replaceable>_AUTH_TYPES</varname></term>
 <listitem>
 <para>
-認証タイプ ("sharedsecret", "gsi", "gsi_auth" のいずれか) を指定します。
-この変数が定義されていない場合は、gfmd1 上で
-<command moreinfo="none">config-gfarm -T</command> を実行したときの
+認証タイプ ("sharedsecret", "sasl_auth", "sasl", "tls_sharedsecret",
+"tls_client_certificate", "kerberos_auth", "kerberos", "gsi_auth",
+または "gsi") を空白区切りの文字列で指定します。
+この gfmd ホストに共有鍵秘密ファイルをコピーするかどうかを制御するために使用します。
+<varname> gfmd1_CONFIG_GFARM_OPTIONS </varname> に "sharedsecret"ないし "tls_sharedsecret" があれば
+特に設定しなくても共有鍵秘密ファイルがコピーされます。
+どちらの設定もなければ、gfmd1 上で <command moreinfo="none"> config-gfarm -T </command> を実行したときの
 <varname>AUTH_TYPES</varname> の値が採用されます。
-(変数 <varname>gfmd1_CONFIG_GFARM_OPTIONS</varname> の値によって、この
-ときの <varname>AUTH_TYPES</varname> の値は変わるので、注意して下さい。)
 </para>
 </listitem>
 </varlistentry>
@@ -300,15 +304,17 @@ gfsd サーバー上で <command moreinfo="none">gfservice-agent</command> コ�
 </varlistentry>
 
 <varlistentry>
-<term><varname>gfsd<replaceable>n</replaceable>_AUTH_TYPE</varname></term>
+<term><varname>gfsd<replaceable>n</replaceable>_AUTH_TYPES</varname></term>
 <listitem>
 <para>
-認証タイプ ("sharedsecret", "gsi", "gsi_auth" のいずれか) を指定します。
-この変数が定義されていない場合は、gfmd1 上で
-<command moreinfo="none">config-gfarm -T</command> を実行したときの
+認証タイプ ("sharedsecret", "sasl_auth", "sasl", "tls_sharedsecret",
+"tls_client_certificate", "kerberos_auth", "kerberos", "gsi_auth",
+または "gsi") を空白区切りの文字列で指定します。
+この gfsd ホストに共有鍵秘密ファイルをコピーするかどうかを制御するために使用します。
+<varname> gfmd1_CONFIG_GFARM_OPTIONS </varname> に "sharedsecret"ないし "tls_sharedsecret" があれば
+特に設定しなくても共有鍵秘密ファイルがコピーされます。
+どちらの設定もなければ、gfmd1 上で <command moreinfo="none"> config-gfarm -T </command> を実行したときの
 <varname>AUTH_TYPES</varname> の値が採用されます。
-(変数 <varname>gfmd1_CONFIG_GFARM_OPTIONS</varname> の値によって、この
-ときの <varname>AUTH_TYPES</varname> の値は変わるので、注意して下さい。)
 </para>
 </listitem>
 </varlistentry>
@@ -455,15 +461,17 @@ gfarm2.confファイルのパスと同じパスを使用します(gfarm2.confフ
 </varlistentry>
 
 <varlistentry>
-<term><varname>client<replaceable>n</replaceable>_AUTH_TYPE</varname></term>
+<term><varname>client<replaceable>n</replaceable>_AUTH_TYPES</varname></term>
 <listitem>
 <para>
-認証タイプ ("sharedsecret", "gsi", "gsi_auth" のいずれか) を指定します。
-この変数が定義されていない場合は、gfmd1 上で
-<command moreinfo="none">config-gfarm -T</command> を実行したときの
+認証タイプ ("sharedsecret", "sasl_auth", "sasl", "tls_sharedsecret",
+"tls_client_certificate", "kerberos_auth", "kerberos", "gsi_auth",
+または "gsi") を空白区切りの文字列で指定します。
+このクライアントホストに共有鍵秘密ファイルをコピーするかどうかを制御するために使用します。
+<varname> gfmd1_CONFIG_GFARM_OPTIONS </varname> に "sharedsecret"ないし "tls_sharedsecret" があれば
+特に設定しなくても共有鍵秘密ファイルがコピーされます。
+どちらの設定もなければ、gfmd1 上で <command moreinfo="none"> config-gfarm -T </command> を実行したときの
 <varname>AUTH_TYPES</varname> の値が採用されます。
-(変数 <varname>gfmd1_CONFIG_GFARM_OPTIONS</varname> の値によって、この
-ときの <varname>AUTH_TYPES</varname> の値は変わるので、注意して下さい。)
 </para>
 </listitem>
 </varlistentry>

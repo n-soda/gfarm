@@ -18,9 +18,13 @@ set -eux -o pipefail
 : $GFDOCKER_SASL_MECH_LIST
 : $GFDOCKER_SASL_LOG_LEVEL
 : $GFDOCKER_SASL_XOAUTH2_ISSUERS
+: $GFDOCKER_SASL_XOAUTH2_SCOPE
+: $GFDOCKER_SASL_XOAUTH2_GROUP_USER
+: $GFDOCKER_GFARM_TEST_CKSUM_MISMATCH
 
 # the followings are optional:
 #: $https_proxy
+#: $no_proxy
 #: $GFDOCKER_ENABLE_PROXY
 
 gfarm_src_path="/work/gfarm"
@@ -28,11 +32,9 @@ BASEDIR="${gfarm_src_path}/docker/dev/common"
 FUNCTIONS=${BASEDIR}/functions.sh
 . ${FUNCTIONS}
 
-SUDO_USER2="sudo sudo -i -u user2"
 SASL_DOMAIN=$(echo "$GFDOCKER_HOSTNAME_SUFFIX" | sed 's/^\.//')
 
 # to change these values, change scripts in ./oauth2/ as well
-GFDOCKER_SASL_XOAUTH2_SCOPE=hpci
 GFDOCKER_SASL_XOAUTH2_AUD=hpci
 GFDOCKER_SASL_XOAUTH2_USER_CLAIM=hpci.id
 
@@ -192,11 +194,6 @@ if pkg-config --exists libsasl2; then
       cat <<_EOF_
 xoauth2_user_claim: ${GFDOCKER_SASL_XOAUTH2_USER_CLAIM}
 _EOF_
-      if "${GFDOCKER_ENABLE_PROXY:-false}"; then
-	cat <<_EOF_
-proxy: ${https_proxy}
-_EOF_
-      fi
     ) >/tmp/sasl_gfarm-client.conf
     (
       cat <<_EOF_
@@ -206,11 +203,18 @@ xoauth2_scope: ${GFDOCKER_SASL_XOAUTH2_SCOPE}
 xoauth2_aud: ${GFDOCKER_SASL_XOAUTH2_AUD}
 xoauth2_user_claim: ${GFDOCKER_SASL_XOAUTH2_USER_CLAIM}
 xoauth2_issuers: ${GFDOCKER_SASL_XOAUTH2_ISSUERS}
+xoauth2_group_user: ${GFDOCKER_SASL_XOAUTH2_GROUP_USER}
 _EOF_
       if "${GFDOCKER_ENABLE_PROXY:-false}"; then
 	cat <<_EOF_
 proxy: ${https_proxy}
 _EOF_
+
+        if [ -n "${no_proxy:-}" ]; then
+    cat <<_EOF_
+no_proxy: ${no_proxy}
+_EOF_
+        fi
       fi
     ) >/tmp/sasl_gfarm.conf
   fi
@@ -254,56 +258,6 @@ sasl_available=false
 if gfstatus 2>/dev/null | grep '^client auth sasl ' | grep ': available'; then
   sasl_available=true
 fi
-
-for host in $gfmds; do
-  (gfservice set-gfmd-conf "$host" digest md5 &&
-   gfservice set-gfmd-conf "$host" metadb_server_heartbeat_interval 10 &&
-   gfservice set-gfmd-conf "$host" 'auth enable gsi' '*' &&
-   if $tls_available; then
-     gfservice set-gfmd-conf "$host" 'auth enable tls_sharedsecret' '*' &&
-     gfservice set-gfmd-conf "$host" 'auth enable tls_client_certificate' '*'
-   fi &&
-   if $sasl_available; then
-     gfservice set-gfmd-conf "$host" 'auth enable sasl_auth' '*' &&
-     gfservice set-gfmd-conf "$host" 'auth enable sasl' '*'
-   fi &&
-   gfservice set-gfmd-conf "$host" "local_user_map" \
-     "${conf_include_dir}/local_user_map" &&
-   gfservice set-gfmd-conf "$host" write_verify enable &&
-   gfservice set-gfmd-conf "$host" write_verify_interval 600 &&
-   gfservice restart-gfmd "$host"
-  ) &
-done
-#wait
-
-for host in $gfsds; do
-  (gfservice set-gfarm-conf "$host" client_digest_check enable &&
-   gfservice set-gfarm-conf "$host" spool_digest_error_check disable &&
-   gfservice set-gfarm-conf "$host" 'auth enable gsi' '*' &&
-   if $tls_available; then
-     gfservice set-gfarm-conf "$host" 'auth enable tls_sharedsecret' '*' &&
-     gfservice set-gfarm-conf "$host" 'auth enable tls_client_certificate' '*'
-   fi &&
-   if $sasl_available; then
-     gfservice set-gfarm-conf "$host" 'auth enable sasl_auth' '*' &&
-     gfservice set-gfarm-conf "$host" 'auth enable sasl' '*'
-   fi &&
-   gfservice set-gfarm-conf "$host" "local_user_map" \
-     "${conf_include_dir}/local_user_map" &&
-   gfservice restart-gfsd "$host" &&
-   ssh "$host" sudo systemctl enable "gfsd-${host}${GFDOCKER_HOSTNAME_SUFFIX}"
-  ) &
-done
-#wait
-
-for host in $clients; do
-  (gfservice set-gfarm-conf "$host" "local_user_map" \
-     "${conf_include_dir}/local_user_map" &&
-   gfservice set-gfarm-conf "$host" client_digest_check enable &&
-   gfservice set-gfarm-conf "$host" schedule_busy_load_thresh 20
-  ) &
-done
-wait
 
 # copy current configuration files for external containers
 COPY_DIR=${MNTDIR}/COPY_DIR
@@ -382,7 +336,7 @@ for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
   # add auth_user_id for SASL w/ mechanism=XOAUTH2
   gfuser -A \
     "${guser}${tenant_user_suffix}" SASL \
-    "${guser}${tenant_user_suffix}"
+    "${unix_username}"
 
   gfsudo gfmkdir -p "${tenant_path_prefix}${ghome_dir}"
   gfsudo gfchown "${guser}${tenant_user_suffix}" \
@@ -404,7 +358,7 @@ for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
       "${sasl_home}" ""
     gfuser -A \
       "${sasl_user}${tenant_user_suffix}" SASL \
-      "${sasl_user}${tenant_user_suffix}"
+      "${unix_username}@${SASL_DOMAIN}"
     gfsudo gfmkdir "${tenant_path_prefix}${sasl_home}"
     gfsudo gfchown "${sasl_user}${tenant_user_suffix}" \
       "${tenant_path_prefix}${sasl_home}"
@@ -422,7 +376,7 @@ for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
  done
 
  # add gfarm user for SASL w/ mechanism=ANONYMOUS
- if $sasl_available &&
+ if $sasl_available && [ "$t" -eq 2 ] &&
    expr "${GFDOCKER_SASL_MECH_LIST}" : '.*ANONYMOUS.*' >/dev/null
  then
   sasl_user="anonymous"
@@ -431,7 +385,7 @@ for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
     "${sasl_home}" ""
   gfuser -A \
     "${sasl_user}${tenant_user_suffix}" SASL \
-    "${sasl_user}${tenant_user_suffix}"
+    "${sasl_user}"
   gfgroup -a -m "gfarmadm${tenant_user_suffix}" \
     "${sasl_user}${tenant_user_suffix}"
   gfsudo gfmkdir \
@@ -442,6 +396,82 @@ for t in $(seq 1 "$GFDOCKER_NUM_TENANTS"); do
  fi
 
 done
+
+# do this before enabling write_verify
+gfsdhost=${GFDOCKER_HOSTNAME_PREFIX_GFSD}1${GFDOCKER_HOSTNAME_SUFFIX}
+gfstatus -Mm 'digest md5'
+
+GFARM_TEST_CKSUM_MISMATCH=${GFDOCKER_GFARM_TEST_CKSUM_MISMATCH}
+printf '%4194308s' ' ' | gfreg -h $gfsdhost - $GFARM_TEST_CKSUM_MISMATCH
+SPOOL_PATH="/var/gfarm-spool-${gfsdhost}/\
+$(gfspoolpath $GFARM_TEST_CKSUM_MISMATCH)"
+ssh $gfsdhost \
+  "printf '%4194307sX' ' ' | sudo dd of=$SPOOL_PATH"
+gfchmod 1777 $GFARM_TEST_CKSUM_MISMATCH
+
+GFARM_TEST_CKSUM_MISMATCH_TENANT2="\
+$(gftenant_path_prefix_from_index 2)\
+${GFARM_TEST_CKSUM_MISMATCH}"
+printf '%4194308s' ' ' |
+  gfsudo gfreg -h $gfsdhost - $GFARM_TEST_CKSUM_MISMATCH_TENANT2
+SPOOL_PATH_TENANT2="/var/gfarm-spool-${gfsdhost}/\
+$(gfsudo gfspoolpath $GFARM_TEST_CKSUM_MISMATCH_TENANT2)"
+ssh $gfsdhost \
+  "printf '%4194307sX' ' ' | sudo dd of=$SPOOL_PATH_TENANT2"
+gfsudo gfchmod 1777 $GFARM_TEST_CKSUM_MISMATCH_TENANT2
+
+for host in $gfmds; do
+  (gfservice set-gfmd-conf "$host" digest md5 &&
+   gfservice set-gfmd-conf "$host" metadb_server_heartbeat_interval 10 &&
+   gfservice set-gfmd-conf "$host" 'auth enable gsi' '*' &&
+   if $tls_available; then
+     gfservice set-gfmd-conf "$host" 'auth enable tls_sharedsecret' '*' &&
+     gfservice set-gfmd-conf "$host" 'auth enable tls_client_certificate' '*'
+   fi &&
+   if $sasl_available; then
+     gfservice set-gfmd-conf "$host" 'auth enable sasl_auth' '*' &&
+     gfservice set-gfmd-conf "$host" 'auth enable sasl' '*'
+   fi &&
+   gfservice set-gfmd-conf "$host" "local_user_map" \
+     "${conf_include_dir}/local_user_map" &&
+   gfservice set-gfmd-conf "$host" write_verify enable &&
+   gfservice set-gfmd-conf "$host" write_verify_interval 600 &&
+   gfservice restart-gfmd "$host"
+  ) &
+done
+# gfsd startup requires digest and write_verify settings
+# to be already applied on gfmd
+wait
+
+
+for host in $gfsds; do
+  (gfservice set-gfarm-conf "$host" client_digest_check enable &&
+   gfservice set-gfarm-conf "$host" spool_digest_error_check disable &&
+   gfservice set-gfarm-conf "$host" 'auth enable gsi' '*' &&
+   if $tls_available; then
+     gfservice set-gfarm-conf "$host" 'auth enable tls_sharedsecret' '*' &&
+     gfservice set-gfarm-conf "$host" 'auth enable tls_client_certificate' '*'
+   fi &&
+   if $sasl_available; then
+     gfservice set-gfarm-conf "$host" 'auth enable sasl_auth' '*' &&
+     gfservice set-gfarm-conf "$host" 'auth enable sasl' '*'
+   fi &&
+   gfservice set-gfarm-conf "$host" "local_user_map" \
+     "${conf_include_dir}/local_user_map" &&
+   gfservice restart-gfsd "$host" &&
+   ssh "$host" sudo systemctl enable "gfsd-${host}${GFDOCKER_HOSTNAME_SUFFIX}"
+  ) &
+done
+#wait
+
+for host in $clients; do
+  (gfservice set-gfarm-conf "$host" "local_user_map" \
+     "${conf_include_dir}/local_user_map" &&
+   gfservice set-gfarm-conf "$host" client_digest_check enable &&
+   gfservice set-gfarm-conf "$host" schedule_busy_load_thresh 20
+  ) &
+done
+wait
 
 ### copy certificates
 CERTIFICATES_DIR=/etc/grid-security/certificates
@@ -540,22 +570,47 @@ CA_DIR=/root/simple_ca
 ### update CA for OAuth-related web servers
 
 case $GFDOCKER_PRJ_NAME in
-    centos*-* | almalinux*-* | rockylinux*-*)
-	for host in $gfmds $gfsds $clients; do
-	   ssh "$host" sudo cp ${CA_DIR}/cacert.pem /usr/share/pki/ca-trust-source/anchors
-	   ssh "$host" sudo update-ca-trust
-        done
-        ;;
-    ubuntu*-* | debian*-*)
-	for host in $gfmds $gfsds $clients; do
-	   ssh "$host" sudo mkdir -p /usr/share/ca-certificates/gfarm
-	   ssh "$host" sudo cp ${CA_DIR}/cacert.pem /usr/share/ca-certificates/gfarm
-	   ssh "$host" "echo 'gfarm/cacert.pem' | sudo tee -a /etc/ca-certificates.conf"
-	   ssh "$host" sudo update-ca-certificates
-        done
-        ;;
-    *)
-	;;
+  centos*-* | almalinux*-* | rockylinux*-* | fedora*-*)
+    for host in $gfmds $gfsds $clients; do
+      ssh "$host" "sudo cp ${CA_DIR}/cacert.pem /usr/share/pki/ca-trust-source/anchors"
+      ssh "$host" "sudo update-ca-trust"
+    done
+    ;;
+  ubuntu*-* | debian*-*)
+    for host in $gfmds $gfsds $clients; do
+      ssh "$host" "sudo mkdir -p /usr/share/ca-certificates/gfarm"
+      ssh "$host" "sudo cp ${CA_DIR}/cacert.pem /usr/share/ca-certificates/gfarm"
+      ssh "$host" "echo 'gfarm/cacert.pem' | sudo tee -a /etc/ca-certificates.conf"
+      ssh "$host" "sudo update-ca-certificates"
+    done
+    ;;
+  opensuse*-*)
+    for host in $gfmds $gfsds $clients; do
+      # openSUSE uses systemd path unit to auto-update CA trust store.
+      # No explicit update-ca-certificates call is needed.
+
+      ssh "$host" "sudo cp ${CA_DIR}/cacert.pem /etc/pki/trust/anchors"
+
+      # VS Code consumes many inotify watches, so this may be necessary
+      # when running under WSL.
+
+      # ssh "$host" "
+      #   if systemctl is-failed ca-certificates.path > /dev/null 2>&1; then
+      #     echo 'ca-certificates.path failed -> increase inotify watches'
+      #
+      #     current=$(cat /proc/sys/fs/inotify/max_user_watches)
+      #     if [ "$current" -lt 524288 ]; then
+      #       # Note: this also affects the host system.
+      #       sudo sysctl fs.inotify.max_user_watches=524288
+      #     fi
+      #
+      #     sudo systemctl restart ca-certificates.path || true
+      #   fi
+      # "
+    done
+    ;;
+  *)
+    ;;
 esac
 
 stty sane

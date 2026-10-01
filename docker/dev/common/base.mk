@@ -82,11 +82,7 @@ DOCKER_BUILD_FLAGS += \
 		--build-arg NO_PROXY='$(GFDOCKER_NO_PROXY)' \
 		--build-arg GFDOCKER_PROXY_HOST='$(GFDOCKER_PROXY_HOST)' \
 		--build-arg GFDOCKER_PROXY_PORT='$(GFDOCKER_PROXY_PORT)' \
-		--build-arg GFDOCKER_ENABLE_PROXY='$(GFDOCKER_ENABLE_PROXY)' \
-                --build-arg MAVEN_OPTS='-Dhttp.proxyHost=$(GFDOCKER_PROXY_HOST) \
-                        -Dhttp.proxyPort=$(GFDOCKER_PROXY_PORT) \
-                        -Dhttps.proxyHost=$(GFDOCKER_PROXY_HOST) \
-                        -Dhttps.proxyPort=$(GFDOCKER_PROXY_PORT)'
+		--build-arg GFDOCKER_ENABLE_PROXY='$(GFDOCKER_ENABLE_PROXY)'
 endif
 
 IMAGE_BASENAME = gfarm-dev
@@ -96,6 +92,8 @@ STOP_TIMEOUT = 3
 DOCKER = $(SUDO) $(DOCKER_BUILD_ENV) $(DOCKER_CMD)
 
 GFDOCKER_PRJ_NAME_FULL=gfarm-$(GFDOCKER_PRJ_NAME)
+
+GFDOCKER_GFARM_TEST_CKSUM_MISMATCH=/tmp/cksum_mismatch
 
 COMPOSE = $(SUDO) $(DOCKER_BUILD_ENV) \
 	COMPOSE_PROJECT_NAME=$(GFDOCKER_PRJ_NAME_FULL) \
@@ -125,7 +123,10 @@ CONTSHELL_FLAGS = \
 		--env GFDOCKER_SASL_LOG_LEVEL='$(GFDOCKER_SASL_LOG_LEVEL)' \
 		--env GFDOCKER_SASL_HPCI_SECET='$(GFDOCKER_SASL_HPCI_SECET)' \
 		--env GFDOCKER_SASL_PASSPHRASE='$(GFDOCKER_SASL_PASSPHRASE)' \
-		--env GFDOCKER_SASL_XOAUTH2_ISSUERS='$(GFDOCKER_SASL_XOAUTH2_ISSUERS)'
+		--env GFDOCKER_SASL_XOAUTH2_SCOPE='$(GFDOCKER_SASL_XOAUTH2_SCOPE)' \
+		--env GFDOCKER_SASL_XOAUTH2_ISSUERS='$(GFDOCKER_SASL_XOAUTH2_ISSUERS)' \
+		--env GFDOCKER_SASL_XOAUTH2_GROUP_USER='$(GFDOCKER_SASL_XOAUTH2_GROUP_USER)' \
+		--env GFDOCKER_GFARM_TEST_CKSUM_MISMATCH='$(GFDOCKER_GFARM_TEST_CKSUM_MISMATCH)'
 
 ifdef GFDOCKER_ENABLE_PROXY
 CONTSHELL_FLAGS += \
@@ -181,8 +182,7 @@ help:
 	@echo '  ARGS="docker-compose args..." make docker-compose'
 	@echo '  make test-all'
 	@echo '  make valgrind-gfmd'
-	@echo '  make centos7'
-	@echo '  make opensuse'
+	@echo '  make <distribution> (e.g. make opensuse)'
 
 define check_config
 if [ ! -d $(TOP)/gfarm2fs ]; then \
@@ -714,14 +714,17 @@ valgrind-gfmd:
 	@echo 'This target is unimplemented.' 1>&2
 	@false
 
-centos7:
-	$(DOCKER_RUN) -it --rm 'centos:7' bash
-
 centos8:
 	$(DOCKER_RUN) -it --rm 'centos:8' bash
 
 rockylinux8:
 	$(DOCKER_RUN) -it --rm 'rockylinux/rockylinux:8' bash
+
+rockylinux9:
+	$(DOCKER_RUN) -it --rm 'rockylinux:9' bash
+
+rockylinux10:
+	$(DOCKER_RUN) -it --rm 'rockylinux/rockylinux:10' bash
 
 almalinux8:
 	$(DOCKER_RUN) -it --rm 'almalinux:8' bash
@@ -735,17 +738,11 @@ centos8stream:
 centos9stream:
 	$(DOCKER_RUN) -it --rm 'quay.io/centos/centos:stream9' bash
 
-fedora33:
-	$(DOCKER_RUN) -it --rm 'fedora:33' bash
+fedora44:
+	$(DOCKER_RUN) -it --rm 'fedora:44' bash
 
 opensuse:
 	$(DOCKER_RUN) -it --rm 'opensuse/leap' bash
-
-ubuntu1804:
-	$(DOCKER_RUN) -it --rm 'ubuntu:18.04' bash
-
-ubuntu2004:
-	$(DOCKER_RUN) -it --rm 'ubuntu:20.04' bash
 
 ubuntu2204:
 	$(DOCKER_RUN) -it --rm 'ubuntu:22.04' bash
@@ -753,8 +750,8 @@ ubuntu2204:
 ubuntu2404:
 	$(DOCKER_RUN) -it --rm 'ubuntu:24.04' bash
 
-debian10:
-	$(DOCKER_RUN) -it --rm 'debian:buster' bash
+ubuntu2604:
+	$(DOCKER_RUN) -it --rm 'ubuntu:26.04' bash
 
-debian11:
-	$(DOCKER_RUN) -it --rm 'debian:bullseye' bash
+debian13:
+	$(DOCKER_RUN) -it --rm 'debian:trixie' bash

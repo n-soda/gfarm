@@ -11,6 +11,75 @@
    % git clone https://github.com/oss-tsukuba/gfarm.git
 ```
 
+## Proxy configuration (optional)
+
+If you are in a proxy environment, configure proxy-related
+environment variables before pulling Docker images or executing
+Docker-related commands such as `minica.sh`, `docker compose build`,
+or `docker compose up`.
+
+The following environment variables are required in a proxy environment.
+
+`PROXY_HOST` and `PROXY_PORT` are used for the `jwt-server`
+related Docker images, and in this case `jwt-server`,
+`jwt-server2`, and `keycloak` must be included in
+`no_proxy`/`NO_PROXY`.
+
+Example:
+
+    % export PROXY_HOST=proxy.example.com
+    % export PROXY_PORT=8080
+
+    % export http_proxy=http://${PROXY_HOST}:${PROXY_PORT}
+    % export https_proxy=http://${PROXY_HOST}:${PROXY_PORT}
+    % export HTTP_PROXY=http://${PROXY_HOST}:${PROXY_PORT}
+    % export HTTPS_PROXY=http://${PROXY_HOST}:${PROXY_PORT}
+
+    % export no_proxy=localhost,127.0.0.1,jwt-server,jwt-server2,keycloak
+    % export NO_PROXY=localhost,127.0.0.1,jwt-server,jwt-server2,keycloak
+
+If Docker daemon proxy configuration is required, create a systemd
+drop-in file.
+
+    % sudo mkdir -p /etc/systemd/system/docker.service.d
+
+    % sudo vi /etc/systemd/system/docker.service.d/http-proxy.conf
+
+Example:
+
+    [Service]
+    Environment="http_proxy=..."
+    Environment="https_proxy=..."
+    Environment="HTTP_PROXY=..."
+    Environment="HTTPS_PROXY=..."
+    Environment="no_proxy=localhost,127.0.0.1,jwt-server,jwt-server2,keycloak"
+    Environment="NO_PROXY=localhost,127.0.0.1,jwt-server,jwt-server2,keycloak"
+
+Reload systemd configuration and restart Docker.
+
+    % sudo systemctl daemon-reload
+    % sudo systemctl restart docker
+
+If Docker client proxy configuration is required, create
+`~/.docker/config.json`.
+
+    % mkdir -p ~/.docker
+
+    % vi ~/.docker/config.json
+
+Example:
+
+    {
+      "proxies": {
+        "default": {
+          "httpProxy": "...",
+          "httpsProxy": "...",
+          "noProxy": "localhost,127.0.0.1,jwt-server,jwt-server2,keycloak"
+        }
+      }
+    }
+
+
 ## Explore on virtual clusters by VS Code dev containers
 
 This section is an option only for VS Code users.
@@ -35,7 +104,7 @@ This section is an option only for VS Code users.
     % sh ./minica.sh
     % DIST=<distribution> docker compose build --build-arg UID=$(id -u) c1
     % DIST=<distribution> docker compose up -d
-    ubuntu, rockylinux9, almalinux8, and centos7 are available as $DIST.  Default is ubuntu
+    ubuntu, rockylinux10, rockylinux9, almalinux8, and centos7 are available as $DIST.  Default is ubuntu
     % make          # login to a container
 
     (in a container)
@@ -66,7 +135,7 @@ When you install Gfarm by `all.sh`, `regress.sh` and `failover.sh` are available
     % cd ..
 
 - connect remote desktop to localhost:13389
-- login user/user
+- login ubuntu/ubuntu
 - launch Firefox (or Chromium (/rdesktop/chromium-start.sh))
 - open a terminal
 - execute `/rdesktop/install-ca-for-browser.sh`
@@ -133,23 +202,20 @@ When regress or regress\_full option is specified this test includes regression 
 
 `batchtest.sh` accepts the following options.
 
-- ubuntu, rockylinux9, almalinux8, centos7 - specifies a distrubution to test.  mutiple distributions can be specified
+- ubuntu, rockylinux10, rockylinux9, almalinux8, centos7 - specifies a distrubution to test.  mutiple distributions can be specified
 
 ## Sanitizer test
 
 please remove the following tests temporarily from regress/schedule,
-because gfpcopy and db_journal_test currently have known bugs:
+because db_journal_test currently have known bugs:
 
-- gftool/gfprep/gfpcopy_dir_by_gfcp.sh
-- gftool/gfprep/gfpcopy_file_by_gfcp.sh
 - server/gfmd/db_journal/db_journal_write.sh
 - server/gfmd/db_journal/db_journal_apply.sh
 
 ### ASAN/LSAN/UBSAN test
 
     (in a container)
-    % rm -rf ~/gfarm/build-x86_64-* ~/gfarm/*/build-x86_64-*
-    % sh ./all.sh asan
+    % sh ./all.sh asan clean
     % sh ./regress.sh
     % sh ./restart.sh
     ... and check /var/tmp/gfarm.log.{a,l,ub}san.* on host c{1..8}
@@ -166,8 +232,7 @@ NOTE:
     % sudo sysctl -w kernel.randomize_va_space=0
 
     (in a container)
-    % rm -rf ~/gfarm/build-x86_64-* ~/gfarm/*/build-x86_64-*
-    % sh ./all.sh tsan
+    % sh ./all.sh tsan clean
     % sh ./regress.sh
     % sh ./restart.sh
     ... and check /var/tmp/gfarm.log.tsan.* on host c{1..8}

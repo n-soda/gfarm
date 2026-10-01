@@ -333,27 +333,27 @@ get_config_gfsd_options()
 #
 # Get authenticatoin type of a host ID.
 #
-get_auth_type()
+get_auth_types()
 {
-	log_debug "get_auth_type: HOSTID=$1"
+	log_debug "get_auth_types: HOSTID=$1"
 
-	if [ "X`eval echo \\$$1_AUTH_TYPE`" != X ]; then
-		eval echo "\$$1_AUTH_TYPE"
-		log_debug "get_auth_type:" \
-			"AUTH_TYPE="`eval echo \\$$1_AUTH_TYPE`
-	elif [ "X$gfmd1_AUTH_TYPE" != X ]; then
-		echo "$gfmd1_AUTH_TYPE"
-		log_debug "get_auth_type: AUTH_TYPE=$gfmd1_AUTH_TYPE"
+	if [ "X`eval echo \\$$1_AUTH_TYPES`" != X ]; then
+		eval echo "\$$1_AUTH_TYPES"
+		log_debug "get_auth_types:" \
+			"AUTH_TYPES="`eval echo \\$$1_AUTH_TYPES`
+	elif [ "X$gfmd1_AUTH_TYPES" != X ]; then
+		echo "$gfmd1_AUTH_TYPES"
+		log_debug "get_auth_types: AUTH_TYPES=$gfmd1_AUTH_TYPES"
 	else
-		gfmd1_AUTH_TYPE=`@bindir@/config-gfarm -T \
+		gfmd1_AUTH_TYPES=`@bindir@/config-gfarm -T \
 			$gfmd1_CONFIG_GFARM_OPTIONS \
 			| sed -ne '/^AUTH_TYPES=/s/^[^=]*=//p'`
-		[ "X$gfmd1_AUTH_TYPE" = X ] && gfmd1_AUTH_TYPE=sharedsecret
-		echo "$gfmd1_AUTH_TYPE"
-		log_debug "get_auth_type: AUTH_TYPE=$gfmd1_AUTH_TYPE"
+		[ "X$gfmd1_AUTH_TYPES" = X ] && gfmd1_AUTH_TYPES=sharedsecret
+		echo "$gfmd1_AUTH_TYPES"
+		log_debug "get_auth_types: AUTH_TYPES=$gfmd1_AUTH_TYPES"
 	fi
 
-	log_debug "end get_auth_type"
+	log_debug "end get_auth_types"
 }
 
 #
@@ -701,18 +701,31 @@ copy_shared_key()
 		return
 	fi
 
-	exec_remote_host_agent $2 _gfarmfs restore-shared-key < $TMP_FILE
-	[ $? -ne 0 ] && log_error \
-		"gfservice-agent restore-shared-key $2 failed"
-
 	if is_gfsd_hostid $2; then
-		log_debug "end copy_shared_key"
-		return
+		if [ X$1 != X- ]; then
+			rm -f $TMP_FILE
+			exec_remote_host_agent $1 _gfarmfs backup-shared-key > $TMP_FILE
+			[ $? -ne 0 ] && log_error \
+				"gfservice-agent backup-shared-key $1 failed"
+		fi
+
+		exec_remote_host_agent $2 _gfarmfs restore-shared-key < $TMP_FILE
+		[ $? -ne 0 ] && log_error \
+			"gfservice-agent restore-shared-key $2 failed"
 	fi
 
-	exec_remote_host_agent $2 _gfarmmd restore-shared-key < $TMP_FILE
-	[ $? -ne 0 ] && log_error \
-		"gfservice-agent restore-shared-key $2 failed"
+	if is_gfmd_hostid $2; then
+		if [ X$1 != X- ]; then
+			rm -f $TMP_FILE
+			exec_remote_host_agent $1 _gfarmmd backup-shared-key > $TMP_FILE
+			[ $? -ne 0 ] && log_error \
+				"gfservice-agent backup-shared-key $1 failed"
+		fi
+
+		exec_remote_host_agent $2 _gfarmmd restore-shared-key < $TMP_FILE
+		[ $? -ne 0 ] && log_error \
+			"gfservice-agent restore-shared-key $2 failed"
+	fi
 
 	log_debug "end copy_shared_key"
 }
@@ -751,10 +764,6 @@ copy_gfarm_conf()
 		[ $? -ne 0 ] && log_error \
 			"gfservice-agent backup-gfarm-conf $1 failed"
 	fi
-	# if AUTH_TYPE is gsi*, this is necessary, and harmless if sharedsecret
-	case $2 in
-	gfsd*) echo 'auth enable sharedsecret *' >> $TMP_FILE;;
-	esac
 
 	exec_remote_host_agent $2 root restore-gfarm-conf < $TMP_FILE
 	[ $? -ne 0 ] && log_error \
@@ -1399,6 +1408,15 @@ subcmd_config_gfarm()
 		exec_remote_host_gfcmd $HOSTID - gfkey -f \
 			-p $SHARED_KEY_VALIDITY_PERIOD
 		[ $? -ne 0 ] && log_error "gfkey failed"
+
+		exec_remote_host_gfcmd $HOSTID _gfarmfs gfkey -f \
+			-p $SHARED_KEY_VALIDITY_PERIOD
+		[ $? -ne 0 ] && log_error "gfkey failed"
+
+		exec_remote_host_gfcmd $HOSTID _gfarmmd gfkey -f \
+			-p $SHARED_KEY_VALIDITY_PERIOD
+		[ $? -ne 0 ] && log_error "gfkey failed"
+
 		copy_shared_key $HOSTID $HOSTID
 	fi
 
@@ -1442,6 +1460,15 @@ subcmd_config_gfarm_master()
 		exec_remote_host_gfcmd $HOSTID - gfkey -f \
 			-p $SHARED_KEY_VALIDITY_PERIOD
 		[ $? -ne 0 ] && log_error "gfkey failed"
+
+		exec_remote_host_gfcmd $HOSTID _gfarmfs gfkey -f \
+			-p $SHARED_KEY_VALIDITY_PERIOD
+		[ $? -ne 0 ] && log_error "gfkey failed"
+
+		exec_remote_host_gfcmd $HOSTID _gfarmmd gfkey -f \
+			-p $SHARED_KEY_VALIDITY_PERIOD
+		[ $? -ne 0 ] && log_error "gfkey failed"
+
 		copy_shared_key $HOSTID $HOSTID
 	fi
 
@@ -1543,8 +1570,14 @@ subcmd_config_gfarm_slave()
 	#
 	# Copy a shared secret key from the master gfmd host to the slave.
 	#
-	[ "X`get_auth_type $HOSTID`" = Xsharedsecret ] \
-		&& copy_shared_key $MASTER_HOSTID $HOSTID
+	eval AUTH_TYPES=$(get_auth_types $HOSTID)
+	for t in $AUTH_TYPES; do
+		case $t in
+			sharedsecret|tls_sharedsecret)
+				copy_shared_key $MASTER_HOSTID $HOSTID
+				;;
+		esac
+	done
 
 	#
 	# Copy PostgreSQL database from the master gfmd host to the slave.
@@ -1600,8 +1633,14 @@ subcmd_config_gfsd()
 	#
 	# Copy a shared secret key from $MASTER_HOSTID to the gfsd host.
 	#
-	[ "X`get_auth_type $HOSTID`" = Xsharedsecret ] \
-		&& copy_shared_key $MASTER_HOSTID $HOSTID
+	eval AUTH_TYPES=$(get_auth_types $HOSTID)
+	for t in $AUTH_TYPES; do
+		case $t in
+			sharedsecret|tls_sharedsecret)
+				copy_shared_key $MASTER_HOSTID $HOSTID
+				;;
+		esac
+	done
 
 	#
 	# Copy 'gfarm2.conf' from $MASTER_HOSTID to the gfsd host.
@@ -1624,7 +1663,7 @@ subcmd_config_gfsd()
 	[ $? -ne 0 ] && log_error "gfservice-agent config-gfsd failed"
 
 	#
-	# Execute 'gfhost -c' on the .
+	# Execute 'gfhost -c' on the master gfmd host.
 	#
 	if is_private_mode $HOSTID; then
 		true
@@ -1657,8 +1696,14 @@ subcmd_config_client()
 	#
 	# Copy a shared secret key from $MASTER_HOSTID to the client host.
 	#
-	[ "X`get_auth_type $HOSTID`" = Xsharedsecret ] \
-		&& copy_shared_key $MASTER_HOSTID $HOSTID
+	eval AUTH_TYPES=$(get_auth_types $HOSTID)
+	for t in $AUTH_TYPES; do
+		case $t in
+			sharedsecret|tls_sharedsecret)
+				copy_shared_key $MASTER_HOSTID $HOSTID
+				;;
+		esac
+	done
 
 	#
 	# Copy 'gfarm2.conf' from $MASTER_HOSTID to the client host.
@@ -1697,7 +1742,7 @@ subcmd_config_all()
 			|| log_warn "failed to config-client for $HOSTID"
 	done
 
-        log_debug "end subcmd_config_all"
+    log_debug "end subcmd_config_all"
 }
 
 #
@@ -1728,12 +1773,6 @@ subcmd_unconfig_gfarm_slave()
 	# Execute 'config-gfarm -T' on the slave host.
 	#
 	execute_config_gfarm_t $HOSTID
-
-	#
-	# Execute 'gfmdhost -d' on the slave host.
-	#
-	exec_remote_host_gfcmd $HOSTID - gfmdhost -d "$BACKEND_HOSTNAME"
-	[ $? -ne 0 ] && log_warn "gfmdhost -d failed"
 
 	#
 	# Execute 'gfservice-agent unconfig-gfarm' on the slave host.
@@ -1767,7 +1806,9 @@ subcmd_unconfig_gfsd()
 {
 	log_debug "subcmd_unconfig_gfsd"
 	check_argc $# 0
+	MASTER_HOSTID=gfmd1
 	check_hostid gfsd $HOSTID
+	check_hostid gfmd $MASTER_HOSTID
 
 	GFSD_HOSTNAME=`exec_remote_host_agent $HOSTID root \
 		get-config-gfsd-param param=GFSD_HOSTNAME`
@@ -1775,16 +1816,16 @@ subcmd_unconfig_gfsd()
 		&& log_error "failed to get GFSD_HOSTNAME of $HOSTID"
 
 	#
-	# Execute 'gfhost -d'.
-	#
-	exec_remote_host_gfcmd $HOSTID - gfhost -d $GFSD_HOSTNAME
-	[ $? -ne 0 ] && log_warn "gfhost -d failed"
-
-	#
 	# Execute 'gfservice-agent unconfig-gfsd'.
 	#
 	exec_remote_host_agent $HOSTID root unconfig-gfsd
 	[ $? -ne 0 ] && log_error "gfservice-agent unconfig-gfsd failed"
+
+	#
+	# Execute 'gfhost -d'on the master gfmd host.
+	#
+	exec_remote_host_gfcmd $MASTER_HOSTID - gfhost -d $GFSD_HOSTNAME
+	[ $? -ne 0 ] && log_warn "gfhost -d failed"
 
 	log_debug "end subcmd_unconfig_gfsd"
 }
@@ -1831,7 +1872,7 @@ subcmd_unconfig_all()
 			|| log_warn "failed to unconfig-gfarm for $HOSTID"
 	done
 
-        log_debug "end subcmd_unconfig_all"
+	log_debug "end subcmd_unconfig_all"
 }
 
 #

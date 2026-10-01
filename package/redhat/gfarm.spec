@@ -1,7 +1,7 @@
 # Part 1 data definition
 %define pkg	gfarm
 %if %{undefined ver}
-%define ver	2.8.9
+%define ver	2.8.10
 %endif
 %if %{undefined rel}
 %define rel	1
@@ -58,11 +58,11 @@ Name: %{package_name}
 Version: %pkgver
 Release: %{rel}%{?dist}
 Source: %{pkg}-%{ver}.tar.gz
-#Patch: %{pkg}.patch
-#%Patch0: gfarm-1.2-patch1.diff
-#%Patch1: gfarm-1.2-patch2.diff
-#%Patch2: gfarm-1.2-patch3.diff
-#%Patch3: gfarm-1.2-patch4.diff
+#Patch: %%{pkg}.patch
+#%%Patch0: gfarm-1.2-patch1.diff
+#%%Patch1: gfarm-1.2-patch2.diff
+#%%Patch2: gfarm-1.2-patch3.diff
+#%%Patch3: gfarm-1.2-patch4.diff
 Group: Applications/File
 License: BSD
 Vendor: National Institute of Advanced Industrial Science and Technology (AIST) and Osamu Tatebe
@@ -85,7 +85,11 @@ Group: System Environment/Libraries
 %if "%{pkg_suffix}" != ""
 Provides: %{pkg}-libs = %{pkgver}-%{rel}
 %endif
+%if 0%{?fedora} >= 40
+BuildRequires: openssl-devel, postgresql-private-devel, postgresql-server-devel
+%else
 BuildRequires: openssl-devel, postgresql-devel
+%endif
 
 %package client
 Summary: Clients for Gfarm file system
@@ -249,11 +253,11 @@ rm -rf ${RPM_BUILD_ROOT}
 mkdir -p $RPM_BUILD_ROOT
 
 %setup -n %{pkg}-%{ver}
-#%patch -p1
-#%patch0 -p1
-#%patch1 -p1
-#%patch2 -p1
-#%patch3 -p1
+#%%patch -p1
+#%%patch0 -p1
+#%%patch1 -p1
+#%%patch2 -p1
+#%%patch3 -p1
 
 %build
 ./configure --prefix=%{prefix} \
@@ -274,6 +278,9 @@ make -j $(nproc)
 make DESTDIR=${RPM_BUILD_ROOT} \
 	default_docdir=%{doc_prefix} \
 	default_mandir=%{man_prefix} install
+# libtool archives are not needed at runtime or for development and are
+# removed by redhat-rpm-config on newer RHEL derivatives.
+find %{buildroot} -name '*.la' -delete
 %if %{gfarm_v2_not_yet}
 mkdir -p ${RPM_BUILD_ROOT}%{profile_prefix}
 cp -p package/redhat/gfarm.{csh,sh} ${RPM_BUILD_ROOT}%{profile_prefix}
@@ -1110,7 +1117,6 @@ fi
 %{html_prefix}/ja/user/export-gfarm.html
 %{html_prefix}/ja/user/nfs-gfarmfs.html
 %endif
-%{html_prefix}/ja/user/smboverssh.html
 %{html_prefix}/pic/Gfarm_logo_tate_color.svg
 %{doc_prefix}/INSTALL.en
 %{doc_prefix}/INSTALL.ja
@@ -1176,7 +1182,6 @@ fi
 %endif
 %{lib_prefix}/libgfperf.so.1
 %{lib_prefix}/libgfperf.so.1.0.0
-%dir %{lib_prefix}/pkgconfig
 %{lib_prefix}/pkgconfig/gfarm.pc
 %dir %{share_prefix}
 %dir %{share_prefix}/config
@@ -1404,19 +1409,14 @@ fi
 # XXX - this should not be here
 %{prefix}/include/gfarm/gfarm_msg_enums.h
 %{lib_prefix}/libgfutil.a
-%{lib_prefix}/libgfutil.la
 %{lib_prefix}/libgfutil.so
 %{lib_prefix}/libgfarm.a
-%{lib_prefix}/libgfarm.la
 %{lib_prefix}/libgfarm.so
 %if %{globus}
 %{lib_prefix}/libgfsl_gsi.a
-%{lib_prefix}/libgfsl_gsi.la
 %endif
 %if %{kerberos}
 %{lib_prefix}/libgfsl_kerberos.a
-%{lib_prefix}/libgfsl_kerberos.la
 %endif
 %{lib_prefix}/libgfperf.a
-%{lib_prefix}/libgfperf.la
 %{lib_prefix}/libgfperf.so

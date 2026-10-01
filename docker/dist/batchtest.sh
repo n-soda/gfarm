@@ -3,24 +3,32 @@ set -xeu
 status=1
 trap '[ $status = 0 ] && echo Done || echo NG; exit $status' 0 1 2 15
 
-option=min
+option=
 DEBIAN=
 RHEL=
 DIST_SPECIFIED=false
 while [ $# -gt 0 ]
 do
 	case $1 in
-	regress|regress_full) option=$1 ;;
-	ubuntu) DEBIAN="$DEBIAN $1"; DIST_SPECIFIED=true ;;
-	rockylinux9|almalinux8|centos7) RHEL="$RHEL $1"; DIST_SPECIFIED=true ;;
+	regress|regress_full|regress_gfarm2fs|regress_gfarm2fs_full)
+	    option="$option $1" ;;
+	ubuntu|ubuntu2404|debian13)
+	    DEBIAN="$DEBIAN $1"; DIST_SPECIFIED=true ;;
+	rockylinux10|rockylinux9|almalinux8|\
+	    fedora44|opensuse16|centos7|centos7a)
+	    RHEL="$RHEL $1"; DIST_SPECIFIED=true ;;
 	*) exit 1 ;;
 	esac
 	shift
 done
 
+[ -n "$option" ] || option=min
+
 $DIST_SPECIFIED || {
-	DEBIAN=ubuntu
-	RHEL="rockylinux9 almalinux8 centos7"
+	DEBIAN="ubuntu ubuntu2404 debian13"
+	#DEBIAN="ubuntu"
+	RHEL="rockylinux10 rockylinux9 almalinux8 fedora44 opensuse16"
+	#RHEL="rockylinux10 rockylinux9 almalinux8"
 }
 [ X"$DEBIAN" = X ] && DEBIAN=NONE
 [ X"$RHEL" = X ] && RHEL=NONE
@@ -36,7 +44,7 @@ test()
 	DIST=$1 docker compose up -d
 
 	# execute a script
-	$DOCKEREXEC sh $script $opt
+	$DOCKEREXEC sh $script $opt clean
 
 	# SASL XOAUTH2 test
 	$DOCKEREXEC sh ./check-oauth.sh $opt
@@ -44,7 +52,7 @@ test()
 	# Multitenant test
 	$DOCKEREXEC sh ./check-multitenant.sh $opt
 
-	docker compose down
+	docker compose down -t 2
 }
 
 # create certificates
@@ -57,7 +65,7 @@ make down
 docker compose build --build-arg UID=$(id -u) c1
 docker compose up -d	# for gfarm_net
 (cd jwt-server && docker compose up -d && make setup)
-docker compose down
+docker compose down -t 2
 
 # debian
 for d in $DEBIAN

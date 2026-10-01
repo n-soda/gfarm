@@ -4,11 +4,29 @@ status=1
 PROG=$(basename $0)
 trap '[ $status = 0 ] && echo All set || echo NG: $PROG; exit $status' 0 1 2 15
 
+: ${CHECK_RETRY_MAX:=30}
+
+check_retry()
+{
+	tries=0
+	while ! "$@"; do
+		tries=$((tries + 1))
+		echo "check_retry: $* failed ($tries/$CHECK_RETRY_MAX)"
+		[ $tries -ge "$CHECK_RETRY_MAX" ] && return 1
+		sleep 1
+	done
+}
+
 build_pkg=false
 gfarm_config=all
 install_option=
+san_option=
+clean_option=
+use_gsi=true
 REGRESS=false
 REGRESS_FULL=false
+REGRESS_GFARM2FS=false
+REGRESS_GFARM2FS_FULL=false
 
 : ${ASAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.asan}
 : ${LSAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.lsan}
@@ -31,12 +49,24 @@ do
 	     REGRESS=true
 	     [ $1 = "regress_full" ] && REGRESS_FULL=true
 	     } ;;
+	regress_gfarm2fs|regress_gfarm2fs_full)
+	     $build_pkg || {
+	     gfarm_config=all
+	     install_option=
+	     REGRESS_GFARM2FS=true
+	     [ $1 = "regress_gfarm2fs_full" ] && REGRESS_GFARM2FS_FULL=true
+	     } ;;
 	asan|tsan)
-	     install_option="$install_option $1" ;;
+	     san_option="$1" ;;
+	skip_gsi)
+	     use_gsi=false ;;
+	clean)
+	     clean_option=clean ;;
 	*) exit 1 ;;
 	esac
 	shift
 done
+install_option="$install_option $san_option $clean_option"
 
 # sanity
 [ -f ./install.sh ]
@@ -99,6 +129,15 @@ else
 		 > /dev/null)")
 fi
 
+# install scitokens-cpp before cyrus-sasl-xoauth2-idp
+# when building RPMs for openSUSE
+if $build_pkg && type lsb_release >/dev/null 2>&1 &&
+	[ "$(lsb_release -i | awk '{print $NF}')" = openSUSE ]; then
+	PKG=scitokens-cpp; export PKG
+	(cd ~/gfarm && sh $DISTDIR/mkrpm.sh)
+	sh ./install-rpm.sh
+fi
+
 # install cyrus-sasl-xoauth2-idp
 PKG=cyrus-sasl-xoauth2-idp; export PKG
 sasl_libdir=$(pkg-config --variable=libdir libsasl2)
@@ -112,16 +151,23 @@ else
 	 sh $DISTDIR/install.sh $install_option)
 fi
 
-cat <<EOF | sudo tee $sasl_libdir/sasl2/gfarm.conf > /dev/null
+{
+cat <<EOF
 log_level: 7
 mech_list: XOAUTH2 ANONYMOUS PLAIN
 xoauth2_scope: hpci
 xoauth2_aud: hpci
 xoauth2_user_claim: hpci.id
 EOF
-cat <<EOF | sudo tee $sasl_libdir/sasl2/gfarm-client.conf > /dev/null
+[ -n "${https_proxy:-}" ] && echo "proxy: ${https_proxy}"
+[ -n "${no_proxy:-}" ] && echo "no_proxy: ${no_proxy}"
+} | sudo tee "$sasl_libdir/sasl2/gfarm.conf" >/dev/null
+
+{
+cat <<EOF
 xoauth2_user_claim: hpci.id
 EOF
+} | sudo tee "$sasl_libdir/sasl2/gfarm-client.conf" >/dev/null
 
 cp $sasl_libdir/sasl2/gfarm*.conf ~/local
 gfarm-prun -p sudo cp local/gfarm*.conf $sasl_libdir/sasl2
@@ -162,7 +208,7 @@ fi
 AUTH=
 for a in $(gfstatus -S | grep 'client auth' | grep -v not | awk '{ print $3 }')
 do
-	[ $a = gsi ] && AUTH="$AUTH gsi gsi_auth"
+	[ $a = gsi ] && $use_gsi && AUTH="$AUTH gsi gsi_auth"
 	[ $a = tls ] && AUTH="$AUTH tls_sharedsecret tls_client_certificate"
 	[ $a = sasl ] && AUTH="$AUTH sasl sasl_auth anonymous anonymous_auth"
 done
@@ -171,18 +217,20 @@ for a in $AUTH
 do
 	echo "*** $a ***"
 	sh ./edconf.sh $a > /dev/null
-	sh ./check.sh
+	check_retry sh ./check.sh
 	if [ $gfarm_config = all ]; then
 		for h in c6 c7 c8; do
 			ssh $h sh $PWD/edconf.sh $a > /dev/null
-			ssh $h sh $PWD/check.sh
+			check_retry ssh $h sh $PWD/check.sh
 		done
 	fi
 	case $a in
 	gsi*|\
 	tls_sharedsecret|sasl_auth|anonymous_auth)
-		$REGRESS_FULL || continue ;;
+		$REGRESS_FULL || $REGRESS_GFARM2FS_FULL || continue ;;
 	esac
+	$REGRESS_GFARM2FS && ~/gfarm/gfarm2fs/regress/regress.sh
+
 	$build_pkg && continue
 	$REGRESS && sh ./regress.sh
 	$REGRESS && sh ./regress-xattr.sh

@@ -19,23 +19,30 @@ Restriction
 
 - Rootless mode is available, but some restrictions exist.
 
-- cgroup v2 should be disabled to build centos7 container
+# Proxy configuration (optional)
 
-  In a docker container, systemctl does not work with cgroup v2.  You can
-  check by the following command
+  If you are in a proxy environment, configure the proxy settings in
+  "docker/dev/config.mk".
 
-  $ docker/dev/common/is_cgroup_v2.sh && echo cgroup2 enabled || echo cgroup2 disabled
+  In some environments, Docker daemon proxy configuration may also be
+  required. Create a systemd drop-in file such as:
 
-  To disable cgroup2, add "systemd.unified_cgroup_hierarchy=false
-  systemd.legacy_systemd_cgroup_controller=false" to GRUB_CMDLINE_LINUX_DEFAULT
-  in /etc/default/grub like
+  /etc/systemd/system/docker.service.d/http-proxy.conf
 
-  GRUB_CMDLINE_LINUX_DEFAULT="quiet systemd.unified_cgroup_hierarchy=false systemd.legacy_systemd_cgroup_controller=false"
+  Example:
 
-  update and reboot
+  [Service]
+  Environment="http_proxy=http://proxy.example.com:8080"
+  Environment="https_proxy=http://proxy.example.com:8080"
+  Environment="HTTP_PROXY=http://proxy.example.com:8080"
+  Environment="HTTPS_PROXY=http://proxy.example.com:8080"
+  Environment="no_proxy=localhost,127.0.0.1,jwt-server,jwt-keycloak"
+  Environment="NO_PROXY=localhost,127.0.0.1,jwt-server,jwt-keycloak"
 
-  $ sudo update-grub
-  $ sudo reboot
+  After updating the configuration:
+
+  $ sudo systemctl daemon-reload
+  $ sudo systemctl restart docker
 
 Quick start
 ===========
@@ -78,7 +85,8 @@ Quick start
 
   If you use other IdP provider, edit config.mk:
 
-  GFDOCKER_SASL_XOAUTH2_ISSUERS = {IdP URL}
+  GFDOCKER_SASL_XOAUTH2_ISSUER  = {IdP URL}     # single issuer
+  GFDOCKER_SASL_XOAUTH2_ISSUERS = {IdP URL(s)}  # space-separated list
 
 5. Setup sudo configuration
 
@@ -106,15 +114,42 @@ Quick start
           - "automount fusermount: mounting over filesystem type 0x00000187 is forbidden"
 	    (not work on fuse version 2.8 to 3.2.6 without autofs patch)
               - centos9
-              - fedora33
+              - fedora44
               - opensuse
-          - "do_mount_autofs_indirect: already mounted as other than autofs or failed to unlink entry in tree"
-              - centos7
 
   - to configure kerberos, run the following command.
     (this is currently tested only on centos8)
 
 	$ make kerberos-setup
+
+Testing xoauth2_group_user authentication in regress tests
+===============================
+
+By default, authentication may succeed via xoauth2_user_claim,
+so xoauth2_group_user-based authentication is not actually tested.
+
+To explicitly test xoauth2_group_user authentication, set a dummy
+(non-existent) xoauth2_user_claim and apply it to all servers.
+
+1. Update SASL configuration (gfarm.conf):
+
+  xoauth2_user_claim: dummy.claim
+
+2. Copy the configuration to all gfmd/gfsd servers.
+
+3. Restart all services:
+
+  gfservice restart-all
+
+4. Obtain JWT tokens for test users:
+
+  as local user user1:
+    jwt-agent -s https://jwt-server/ -l user1
+  as local user user5:
+    jwt-agent -s https://jwt-server/ -l user5
+
+In this setup, authentication relies on xoauth2_group_user
+instead of xoauth2_user_claim.
 
 Use Rootless mode
 =================
@@ -208,7 +243,7 @@ Keep keys
 
 1. to keep ssh host keys only for client1 container
 
-  $ cd dist/centos7/src  # when using source package on CentOS 7
+  $ cd dist/<distribution>/src
   $ make shell
   ### in container
   user1$ sudo ./SAVE_SSH_HOST_KEYS.sh
@@ -222,7 +257,7 @@ Keep keys
   ### (Example)
   $ cat ~/.ssh/id_rsa.pub >> mnt/ssh_authorized_keys
 
-  $ cd dist/centos7/src  # when using source package on CentOS 7
+  $ cd dist/<distribution>/src
   $ make reborn
 
   ### use "ssh" instead of "make shell"
@@ -327,7 +362,7 @@ Nextcloud using Gfarm as primary storage
   - nextcloud.env
     - NEXTCLOUD_TRUSTED_DOMAINS
 
-  $ cd docker/dev/dist/centos7/src
+  $ cd docker/dev/dist/<distribution>/src
   $ make reborn
   $ make nextcloud-reborn
 
@@ -411,10 +446,10 @@ Gfarm GridFTP DSI
 
 2. to install gfarm-gridftp-dsi into running container
 
-  $ cd docker/dev/dist/centos7/src
+  $ cd docker/dev/dist/<distribution>/src
   $ make gridftp-setup
 
 3. to run unit test
 
-  $ cd docker/dev/dist/centos7/src
+  $ cd docker/dev/dist/<distribution>/src
   $ make gridftp-test
