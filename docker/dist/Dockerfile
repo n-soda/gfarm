@@ -13,10 +13,12 @@ RUN dnf -y upgrade almalinux-release \
  && dnf -y install \
     globus-gssapi-gsi-devel \
     python3-docopt python3-schema python3-tqdm python3-flake8 \
-    fuse fuse-devel libacl-devel \
+    fuse3 fuse3-devel libacl-devel \
     cyrus-sasl-devel scitokens-cpp-devel \
     procps
 
 ADD . /root/gfarm
 
+# shut down systemd cleanly by "docker stop"
+STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]

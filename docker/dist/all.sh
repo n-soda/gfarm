@@ -28,10 +28,14 @@ REGRESS_FULL=false
 REGRESS_GFARM2FS=false
 REGRESS_GFARM2FS_FULL=false
 
-: ${ASAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.asan}
-: ${LSAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.lsan}
-: ${UBSAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.ubsan}
-: ${TSAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.tsan}
+: ${ASAN_OPTIONS=halt_on_error=false:log_exe_name=true:log_path=/var/tmp/gfarm.log.asan}
+LSAN_SUPP=$(cd $(dirname $0) && pwd)/lsan.supp
+# fast_unwind_on_malloc=0: lsan.supp does not match a stack truncated by
+# the fast unwinder at a library built without frame pointers
+: ${LSAN_OPTIONS=halt_on_error=false:log_exe_name=true:log_path=/var/tmp/gfarm.log.lsan:suppressions=$LSAN_SUPP:fast_unwind_on_malloc=0}
+: ${UBSAN_OPTIONS=halt_on_error=false:log_exe_name=true:log_path=/var/tmp/gfarm.log.ubsan}
+TSAN_SUPP=$(cd $(dirname $0) && pwd)/tsan.supp
+: ${TSAN_OPTIONS=halt_on_error=false:log_exe_name=true:log_path=/var/tmp/gfarm.log.tsan:suppressions=$TSAN_SUPP}
 export ASAN_OPTIONS LSAN_OPTIONS UBSAN_OPTIONS TSAN_OPTIONS
 
 while [ $# -gt 0 ]
@@ -178,11 +182,14 @@ LIBXSAN=$(ldd /usr/local/bin/gfstatus |
 	awk '$1 ~ /lib(hwa|a|l|ub|t)san\.so\./ && $2 == "=>" {
 		if (p) p = p ":" $3; else p = $3 } END {print p}')
 
+# setarch -R: libasan of GCC 11 (e.g. Rocky Linux 9) preloaded into a
+# program built without it crashes by SEGV at random with ASLR, when
+# vm.mmap_rnd_bits is 32
 PASS=PASSWORD
 gfarm-prun -p -a \
-  "echo $PASS | sudo ${LIBXSAN:+LD_PRELOAD=$LIBXSAN} saslpasswd2 -c $(id -un)"
+  "echo $PASS | sudo ${LIBXSAN:+setarch -R env LD_PRELOAD=$LIBXSAN} saslpasswd2 -c $(id -un)"
 gfarm-prun -p -a \
-	"sudo chown _gfarmfs /etc/sasldb2 /etc/sasl2/sasldb2 > /dev/null 2>&1"
+  "sudo chown _gfarmfs /etc/sasldb2 /etc/sasl2/sasldb2 > /dev/null 2>&1 || :"
 
 # set up certificates
 sh ./key.sh
@@ -194,12 +201,18 @@ sh ./tlscert.sh
 if [ $gfarm_config = all ]; then
 	# set up Gfarm-1 with 5 nodes
 	echo c1 c2 c3 c4 c5 | sh ./config.sh - &
+	pids=$!
 
 	# set up Gfarm-2 to Gfarm-4 with 1 node
 	for h in c6 c7 c8; do
 		echo $h | ssh $h sh $PWD/config.sh - &
+		pids="$pids $!"
 	done
-	wait
+	config_status=0
+	for pid in $pids; do
+		wait $pid || config_status=1
+	done
+	[ $config_status = 0 ]
 else
 	echo c1 | sh ./config.sh -
 fi

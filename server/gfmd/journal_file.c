@@ -559,9 +559,13 @@ journal_fread_uint32(FILE *file, gfarm_uint32_t *np, void *data, off_t *posp)
 }
 
 static gfarm_uint32_t
-journal_deserialize_uint32(unsigned char *d)
+journal_deserialize_uint32(const unsigned char *d)
 {
-	return (d[0] << 24 | d[1] << 16 | d[2] << 8 | d[3]);
+	return (
+	    (gfarm_uint32_t)d[0] << 24 |
+	    (gfarm_uint32_t)d[1] << 16 |
+	    (gfarm_uint32_t)d[2] << 8 |
+	    (gfarm_uint32_t)d[3]);
 }
 
 static gfarm_uint64_t
@@ -1948,6 +1952,7 @@ journal_file_read(struct journal_file_reader *reader, void *op_arg,
 	journal_free_op_t free_op, void *closure, int *eofp)
 {
 	gfarm_error_t e;
+	int eof = 0;
 	gfarm_uint64_t seqnum;
 	enum journal_operation ope = 0;
 	int needs_free = 1, drained = 0;
@@ -1962,8 +1967,6 @@ journal_file_read(struct journal_file_reader *reader, void *op_arg,
 	static struct gflog_reduced_state verbose_log_state =
 	    GFLOG_REDUCED_STATE_INITIALIZER(3, 3, 60, 60);
 
-	if (eofp)
-		*eofp = 0;
 	journal_file_mutex_lock(jf, diag);
 	if (journal_file_is_closed(jf)) {
 		e = GFARM_ERR_NO_ERROR;
@@ -1982,7 +1985,7 @@ journal_file_read(struct journal_file_reader *reader, void *op_arg,
 	}
 	while (avail < min_rec_size) { /* no more record */
 		if (journal_file_has_writer(jf) == 0) {
-			*eofp = 1;
+			eof = 1;
 			goto unlock;
 		}
 		if (JOURNAL_FILE_READER_DRAINED(reader)) {
@@ -2015,7 +2018,7 @@ journal_file_read(struct journal_file_reader *reader, void *op_arg,
 		gflog_reduced_info(GFARM_MSG_1005741, &verbose_log_state,
 		    "journal_file_read: got seqnum %llu",
 		    (unsigned long long)seqnum);
-	if (eofp && *eofp)
+	if (eof)
 		goto unlock;
 	if ((e = read_op(op_arg, xdr, ope, &obj))
 	    != GFARM_ERR_NO_ERROR) {
@@ -2039,6 +2042,8 @@ unlock:
 	journal_file_mutex_unlock(jf, diag);
 	if (needs_free && obj)
 		free_op(op_arg, ope, obj);
+	if (eofp != NULL)
+		*eofp = eof;
 	return (e);
 }
 

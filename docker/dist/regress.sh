@@ -5,10 +5,14 @@ PROG=$(basename $0)
 trap '[ $status = 0 ] && echo Done || echo NG: $PROG; \
 	gfrm -f $TFILE; exit $status' 0 1 2 15
 
-: ${ASAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.asan}
-: ${LSAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.lsan}
-: ${UBSAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.ubsan}
-: ${TSAN_OPTIONS=halt_on_error=false,log_exe_name=true,log_path=/var/tmp/gfarm.log.tsan}
+: ${ASAN_OPTIONS=halt_on_error=false:log_exe_name=true:log_path=/var/tmp/gfarm.log.asan}
+LSAN_SUPP=$(cd $(dirname $0) && pwd)/lsan.supp
+# fast_unwind_on_malloc=0: lsan.supp does not match a stack truncated by
+# the fast unwinder at a library built without frame pointers
+: ${LSAN_OPTIONS=halt_on_error=false:log_exe_name=true:log_path=/var/tmp/gfarm.log.lsan:suppressions=$LSAN_SUPP:fast_unwind_on_malloc=0}
+: ${UBSAN_OPTIONS=halt_on_error=false:log_exe_name=true:log_path=/var/tmp/gfarm.log.ubsan}
+TSAN_SUPP=$(cd $(dirname $0) && pwd)/tsan.supp
+: ${TSAN_OPTIONS=halt_on_error=false:log_exe_name=true:log_path=/var/tmp/gfarm.log.tsan:suppressions=$TSAN_SUPP}
 export ASAN_OPTIONS LSAN_OPTIONS UBSAN_OPTIONS TSAN_OPTIONS
 
 TFILE=/tmp/corrupted-file
@@ -24,13 +28,13 @@ DISTDIR=$PWD
 
 is_asan_enabled()
 {
-	ASAN_OPTIONS=help=true,halt_on_error=false gfstatus -V 2>&1 | sed q |
+	ASAN_OPTIONS=help=true:halt_on_error=false gfstatus -V 2>&1 | sed q |
 		grep AddressSanitizer >/dev/null
 }
 
 is_tsan_enabled()
 {
-	TSAN_OPTIONS=help=true,halt_on_error=false gfstatus -V 2>&1 | sed q |
+	TSAN_OPTIONS=help=true:halt_on_error=false gfstatus -V 2>&1 | sed q |
 		grep ThreadSanitizer >/dev/null
 }
 

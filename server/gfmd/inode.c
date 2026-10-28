@@ -967,7 +967,6 @@ inode_tdirset_check(struct inode *inode, struct dirset *tdirset,
 		gflog_notice(GFARM_MSG_1004666,
 		    "%s: inode %lld: unknown dirset, scheduling quota_check",
 		    diag, (long long)inode_get_number(inode));
-		gfarm_log_backtrace_symbols();
 		dirquota_check_schedule();
 	}
 }
@@ -1040,6 +1039,14 @@ static struct gflog_reduced_state rep_fixed_state =
  * 3. create replicas for targets_near[]
  * 4. if there are not enough, create replicas for targets_far[]
  */
+static void
+rep_fail_set(int *rep_failp, int reason)
+{
+	if (rep_failp != NULL)
+		*rep_failp |= reason;
+}
+
+/* rep_failp may be NULL, otherwise INODE_REP_FAIL_* are OR-ed into it */
 gfarm_error_t
 inode_schedule_replication_within_scope(
 	struct inode *inode, struct dirset *tdirset, int n_desired,
@@ -1047,7 +1054,7 @@ inode_schedule_replication_within_scope(
 	int *n_scopep, struct hostset *scope,
 	int *n_existingp, struct hostset *existing, gfarm_time_t grace,
 	int *n_being_removedp, struct hostset *being_removed, const char *diag,
-	int *req_ok_nump)
+	int *req_ok_nump, int *rep_failp)
 {
 	gfarm_error_t e, save_e = GFARM_ERR_NO_ERROR;
 	struct host **targets_near, **targets_far, *src, *dst;
@@ -1074,6 +1081,7 @@ inode_schedule_replication_within_scope(
 		    (long long)inode_get_gen(inode),
 		    n_desired, *n_scopep, *n_existingp, *n_being_removedp,
 		    gfarm_error_string(e));
+		rep_fail_set(rep_failp, INODE_REP_FAIL_UNSCHEDULABLE);
 		return (e);
 	}
 
@@ -1097,6 +1105,7 @@ inode_schedule_replication_within_scope(
 			    n_desired, *n_scopep, *n_existingp,
 			    *n_being_removedp, n_valid, n_targets);
 			save_e = GFARM_ERR_FILE_BUSY; /* retry */
+			rep_fail_set(rep_failp, INODE_REP_FAIL_REMOVING);
 		} else {
 			gflog_reduced_info(GFARM_MSG_1005097,
 			    &rep_unsatisfied_state, "%s: inode %lld:%lld: "
@@ -1107,6 +1116,7 @@ inode_schedule_replication_within_scope(
 			    (long long)inode_get_gen(inode),
 			    n_desired, *n_scopep, *n_existingp,
 			    *n_being_removedp, n_valid, n_targets);
+			rep_fail_set(rep_failp, INODE_REP_FAIL_UNSATISFIED);
 		}
 	}
 	/* but, retry is unnecessary when n_desired is too large */
@@ -1151,6 +1161,7 @@ inode_schedule_replication_within_scope(
 			    user_tenant_name(inode_get_user(inode)),
 			    host_name(dst),
 			    gfarm_error_string(e));
+			rep_fail_set(rep_failp, INODE_REP_FAIL_QUOTA_EXCEEDED);
 			save_e = e;
 			break;
 		} else if (e != GFARM_ERR_NO_ERROR) {
@@ -1163,6 +1174,7 @@ inode_schedule_replication_within_scope(
 			    user_tenant_name(inode_get_user(inode)),
 			    host_name(dst),
 			    gfarm_error_string(e));
+			rep_fail_set(rep_failp, INODE_REP_FAIL_REQUEST_FAILED);
 
 			/* prefer GFARM_ERR_NO_MEMORY to the first error */
 			if (save_e == GFARM_ERR_NO_ERROR ||
@@ -1171,6 +1183,7 @@ inode_schedule_replication_within_scope(
 		} else if ((e = inode_replication_request(inode, fr,
 		    diag)) != GFARM_ERR_NO_ERROR) {
 			/* this case, inode_replication_request() may sleep */
+			rep_fail_set(rep_failp, INODE_REP_FAIL_REQUEST_FAILED);
 
 			/* prefer GFARM_ERR_NO_MEMORY to the first error */
 			if (save_e == GFARM_ERR_NO_ERROR ||
@@ -1196,7 +1209,8 @@ inode_schedule_replication_within_scope(
 	if (busy) /* retry immediately in replica_check */
 		return (GFARM_ERR_RESOURCE_TEMPORARILY_UNAVAILABLE);
 
-	if (shortage > n_success)
+	if (shortage > n_success) {
+		rep_fail_set(rep_failp, INODE_REP_FAIL_FEWER);
 		gflog_reduced_notice(GFARM_MSG_1003694, &rep_fewer_state,
 		    "%s: %lld:%lld:%s: fewer replicas, "
 		    "increase=%d/before=%d/desire=%d", diag,
@@ -1204,7 +1218,7 @@ inode_schedule_replication_within_scope(
 		    (long long)inode_get_gen(inode),
 		    user_tenant_name(inode_get_user(inode)),
 		    n_success, n_valid, n_desired);
-	else
+	} else
 		gflog_reduced_debug(GFARM_MSG_1003695, &rep_fixed_state,
 		    "%s: %lld:%lld:%s: will be fixed, increase=%d/desire=%d",
 		    diag, (long long)inode_get_number(inode),
@@ -1227,7 +1241,7 @@ inode_schedule_replication_from_all(
 	int n_srcs, struct host **srcs,
 	int *n_existingp, struct hostset *existing, gfarm_time_t grace,
 	int *n_being_removedp, struct hostset *being_removed, const char *diag,
-	int *req_ok_nump)
+	int *req_ok_nump, int *rep_failp)
 {
 	gfarm_error_t e;
 	int n_all_hosts;
@@ -1247,7 +1261,7 @@ inode_schedule_replication_from_all(
 	e = inode_schedule_replication_within_scope(
 	    inode, tdirset, n_desired, n_srcs, srcs,
 	    &n_all_hosts, all_hosts, n_existingp, existing, grace,
-	    n_being_removedp, being_removed, diag, req_ok_nump);
+	    n_being_removedp, being_removed, diag, req_ok_nump, rep_failp);
 	hostset_free(all_hosts);
 	return (e);
 }
@@ -1265,7 +1279,7 @@ inode_schedule_replication(
 	int n_srcs, struct host **srcs,
 	int *n_existingp, struct hostset *existing, gfarm_time_t grace,
 	int *n_being_removedp, struct hostset *being_removed, const char *diag,
-	int *req_ok_nump)
+	int *req_ok_nump, int *rep_failp)
 {
 	gfarm_error_t e;
 	int total_repattr;
@@ -1283,7 +1297,7 @@ inode_schedule_replication(
 		    inode, tdirset, repattr, n_srcs, srcs,
 		    n_existingp, existing, grace,
 		    n_being_removedp, being_removed, diag, &total_repattr,
-		    req_ok_nump);
+		    req_ok_nump, rep_failp);
 		if (is_replica_check &&
 		    e == GFARM_ERR_RESOURCE_TEMPORARILY_UNAVAILABLE) {
 			/* retry in replica_check */
@@ -1307,7 +1321,7 @@ inode_schedule_replication(
 	e = inode_schedule_replication_from_all(
 	    inode, tdirset, n_desired,
 	    n_srcs, srcs, n_existingp, existing, grace,
-	    n_being_removedp, being_removed, diag, req_ok_nump);
+	    n_being_removedp, being_removed, diag, req_ok_nump, rep_failp);
 
 	return (e);
 }
@@ -1387,7 +1401,7 @@ make_replicas_except(struct inode *inode, struct dirset *tdirset,
 	e = inode_schedule_replication(
 	    inode, tdirset, 0, desired_replica_number, repattr,
 	    1, srcs, &n_existing, existing, 0,
-	    &n_being_removed, being_removed, diag, &req_ok_num);
+	    &n_being_removed, being_removed, diag, &req_ok_num, NULL);
 
 	hostset_free(existing);
 	hostset_free(being_removed);
@@ -5718,7 +5732,7 @@ inode_has_writable_replica(struct inode *inode)
 	for (copy = inode->u.c.s.f.copies; copy != NULL;
 	    copy = copy->host_next) {
 		if (FILE_COPY_IS_VALID(copy) &&
-		    host_is_disk_available(copy->host, 0))
+		    host_is_disk_available_or_unknown(copy->host, 0))
 			return (1);
 	}
 	return (0);
@@ -5942,7 +5956,7 @@ inode_schedule_confirm_for_write(struct file_opening *opening,
 		 * because it incurs a race.
 		 */
 		if (FILE_COPY_IS_VALID(copy) /* == inode_has_replica() */) {
-			if (host_is_disk_available(spool_host, 0))
+			if (host_is_disk_available_or_unknown(spool_host, 0))
 				return (GFARM_ERR_NO_ERROR);
 			else
 				return (GFARM_ERR_NO_SPACE);
@@ -6563,8 +6577,12 @@ inode_replicated(struct file_replicating *fr,
 	    src_errcode != GFARM_ERR_INVALID_FILE_REPLICA &&
 	    src_errcode != GFARM_ERR_CHECKSUM_MISMATCH) {
 		/*
-		 * XXX - src_errcode check is a workaround to avoid
-		 * infinite loop of replica check until #836 is fixed
+		 * src_errcode check avoids infinite loop of replica
+		 * check, which repeats replication from the corrupted
+		 * source replica.  Since #836 was fixed, the source
+		 * gfsd moves the corrupted replica to lost+found and
+		 * reports replica_lost, so this check is only a
+		 * safeguard in case the report fails.
 		 *
 		 * #647 - workaround for #646 - retry replication when
 		 * a result of replication is failure

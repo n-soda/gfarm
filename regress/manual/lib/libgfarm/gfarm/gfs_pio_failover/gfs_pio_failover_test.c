@@ -636,17 +636,17 @@ static void
 test_utimes0(const char **argv, int follow)
 {
 	const char *path = argv[0];
-	struct gfarm_timespec gfts;
+	struct gfarm_timespec gfts[2];
 	GFS_File gf;
 	const char *diag = follow ? "utimes" : "lutimes";
 	struct gfm_connection *con = cache_gfm_connection(&gf, path);
 
 	wait_for_failover();
 
-	gfts.tv_sec = 1000000;
-	gfts.tv_nsec = 0;
+	gfts[0].tv_sec = gfts[1].tv_sec = 1000000;
+	gfts[0].tv_nsec = gfts[1].tv_nsec = 0;
 	msg("%s\n", diag);
-	chkerr((follow ? gfs_utimes : gfs_lutimes)(path, &gfts), diag);
+	chkerr((follow ? gfs_utimes : gfs_lutimes)(path, gfts), diag);
 	msg("%s ok\n", diag);
 	assert(con != gfs_pio_metadb(gf));
 
@@ -657,13 +657,13 @@ test_utimes0(const char **argv, int follow)
 static void
 test_utimes(const char **argv)
 {
-	test_utimes0(argv, 0);
+	test_utimes0(argv, 1);
 }
 
 static void
 test_lutimes(const char **argv)
 {
-	test_utimes0(argv, 1);
+	test_utimes0(argv, 0);
 }
 
 static void
@@ -1701,6 +1701,7 @@ test_fhopen_file(const char **argv)
 	chkerr_n(gfs_pio_fhopen(st.st_ino, st.st_gen, GFARM_FILE_RDONLY,
 	    &gf1), "fhopen", 1);
 	msg("gf[%d]: fhopen ok\n", 1);
+	gfs_stat_free(&st);
 
 	/* schedule gf0 */
 	do_read(gf0, 0);
@@ -2128,10 +2129,87 @@ test_recvfile_close_recvfile(const char **argv)
 	chkerrno(close(lfd0), "close#0");
 }
 
-static void
-test_write_long_loop(const char **argv)
-{
 #define WRITE_LOOP_BUFSZ 512
+
+/*
+ * fill a block with the pattern which identifies the file, the loop
+ * and the block, to detect data written to a wrong file.
+ */
+static void
+write_loop_fill_block(char *buf, int file, int loop, int block)
+{
+	char c = 'a' + file % 26;
+	int n;
+
+	memset(buf, c, WRITE_LOOP_BUFSZ);
+	n = snprintf(buf, WRITE_LOOP_BUFSZ, "file=%d loop=%d block=%d\n",
+	    file, loop, block);
+	if (n >= 0 && n < WRITE_LOOP_BUFSZ)
+		buf[n] = c; /* overwrite '\0' */
+}
+
+static gfarm_error_t
+write_loop_verify(const char *path, int file, int loop, int filesz)
+{
+	gfarm_error_t e, e2;
+	GFS_File gf;
+	char buf[WRITE_LOOP_BUFSZ], expected[WRITE_LOOP_BUFSZ], head[64];
+	int off, n, len, k;
+
+	e = gfs_pio_open(path, GFARM_FILE_RDONLY, &gf);
+	if (e != GFARM_ERR_NO_ERROR) {
+		msg("%s: open for verify: %s\n", path, gfarm_error_string(e));
+		return (e);
+	}
+	for (off = 0; off < filesz; off += WRITE_LOOP_BUFSZ) {
+		for (n = 0; n < WRITE_LOOP_BUFSZ; n += len) {
+			e = gfs_pio_read(gf, buf + n, WRITE_LOOP_BUFSZ - n,
+			    &len);
+			if (e != GFARM_ERR_NO_ERROR) {
+				msg("%s: read for verify: %s\n", path,
+				    gfarm_error_string(e));
+				goto close;
+			}
+			if (len == 0) {
+				msg("%s: unexpected EOF at %d\n",
+				    path, off + n);
+				e = GFARM_ERR_UNKNOWN;
+				goto close;
+			}
+		}
+		write_loop_fill_block(expected, file, loop,
+		    off / WRITE_LOOP_BUFSZ);
+		if (memcmp(buf, expected, WRITE_LOOP_BUFSZ) != 0) {
+			for (k = 0; k < sizeof(head) - 1; k++)
+				head[k] = buf[k] >= ' ' && buf[k] <= '~' ?
+				    buf[k] : '.';
+			head[k] = '\0';
+			msg("%s: wrong content at %d: "
+			    "expected file=%d loop=%d block=%d, but \"%s\"\n",
+			    path, off, file, loop, off / WRITE_LOOP_BUFSZ,
+			    head);
+			e = GFARM_ERR_UNKNOWN;
+			goto close;
+		}
+	}
+close:
+	e2 = gfs_pio_close(gf);
+	if (e2 != GFARM_ERR_NO_ERROR) {
+		msg("%s: close for verify: %s\n", path,
+		    gfarm_error_string(e2));
+		if (e == GFARM_ERR_NO_ERROR)
+			e = e2;
+	}
+	return (e);
+}
+
+/*
+ * if verify is set, write the pattern which identifies each block,
+ * and verify the content of each file after close.
+ */
+static void
+write_long_loop(const char **argv, int verify)
+{
 	gfarm_error_t e = GFARM_ERR_NO_ERROR;
 	const char *path_base = argv[0];
 	int tmlimit = atoi(argv[1]);
@@ -2144,6 +2222,7 @@ test_write_long_loop(const char **argv)
 	int loop = 0, wstatus, r, i, len, rest_files;
 	char **path;
 	char buf[WRITE_LOOP_BUFSZ];
+	gfarm_off_t st_size;
 	struct gfs_stat st;
 	struct timeval tm;
 
@@ -2188,6 +2267,9 @@ test_write_long_loop(const char **argv)
 		memset(fsz, 0, files * sizeof(size_t));
 		while (rest_files > 0) {
 			for (i = 0; i < files; ++i) {
+				if (verify)
+					write_loop_fill_block(buf, i, loop,
+					    fsz[i] / WRITE_LOOP_BUFSZ);
 				e = gfs_pio_write(gf[i], buf,
 				    WRITE_LOOP_BUFSZ, &len);
 				if (e != GFARM_ERR_NO_ERROR) {
@@ -2219,13 +2301,22 @@ test_write_long_loop(const char **argv)
 				    gfarm_error_string(e));
 				goto end;
 			}
-			if (st.st_size != fsz[i]) {
+			st_size = st.st_size;
+			gfs_stat_free(&st);
+			if (st_size != fsz[i]) {
 				msg("gf[%d]: size: expected %ld but %ld \n", i,
-				    (long)fsz[i], (long)st.st_size);
+				    (long)fsz[i], (long)st_size);
 				e = GFARM_ERR_UNKNOWN;
 				goto end;
 			}
 			msg("stat: %s ok\n", path[i]);
+		}
+		for (i = 0; verify && i < files; ++i) {
+			msg("verify: %s\n", path[i]);
+			e = write_loop_verify(path[i], i, loop, filesz);
+			if (e != GFARM_ERR_NO_ERROR)
+				goto end;
+			msg("verify: %s ok\n", path[i]);
 		}
 		for (i = 0; i < files; ++i) {
 			msg("remove: %s\n", path[i]);
@@ -2270,6 +2361,18 @@ end:
 }
 
 static void
+test_write_long_loop(const char **argv)
+{
+	write_long_loop(argv, 0);
+}
+
+static void
+test_write_verify_long_loop(const char **argv)
+{
+	write_long_loop(argv, 1);
+}
+
+static void
 test_sendfile_long_loop(const char **argv)
 {
 	gfarm_error_t e = GFARM_ERR_NO_ERROR;
@@ -2287,6 +2390,7 @@ test_sendfile_long_loop(const char **argv)
 	int loop = 0, wstatus, r, i, rest_files;
 	gfarm_off_t len;
 	char **path;
+	gfarm_off_t st_size;
 	struct gfs_stat st;
 	struct timeval tm;
 
@@ -2365,9 +2469,11 @@ test_sendfile_long_loop(const char **argv)
 				    gfarm_error_string(e));
 				goto end;
 			}
-			if (st.st_size != fsz[i]) {
+			st_size = st.st_size;
+			gfs_stat_free(&st);
+			if (st_size != fsz[i]) {
 				msg("gf[%d]: size: expected %ld but %ld \n", i,
-				    (long)fsz[i], (long)st.st_size);
+				    (long)fsz[i], st_size);
 				e = GFARM_ERR_UNKNOWN;
 				goto end;
 			}
@@ -2460,7 +2566,7 @@ test_getattrplus0(const char **argv, int follow)
 	GFS_File gf;
 	char *patterns[] = { "*" };
 	char **names, **vals;
-	int nattrs;
+	int i, nattrs;
 	size_t *sizes;
 	struct gfs_stat gfst;
 	const char *diag = follow ? "getattrplus" : "lgetattrplus";
@@ -2473,6 +2579,10 @@ test_getattrplus0(const char **argv, int follow)
 	    (path, patterns, 1, 0, &gfst, &nattrs, &names,
 	    (void ***)(char *)&vals, &sizes), diag);
 	msg("%s ok\n", diag);
+	for (i = 0; i < nattrs; i++) {
+		free(names[i]);
+		free(vals[i]);
+	}
 	free(names);
 	free(vals);
 	free(sizes);
@@ -3148,6 +3258,7 @@ struct type_info {
 	{ "read-close-read",	1, test_read_close_read },
 	{ "recvfile-close-recvfile", 2, test_recvfile_close_recvfile },
 	{ "write-long-loop",	4, test_write_long_loop },
+	{ "write-verify-long-loop", 4, test_write_verify_long_loop },
 	{ "sendfile-long-loop",	5, test_sendfile_long_loop },
 
 	/* xattr/xmlattr */

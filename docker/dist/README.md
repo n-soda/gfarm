@@ -206,12 +206,6 @@ When regress or regress\_full option is specified this test includes regression 
 
 ## Sanitizer test
 
-please remove the following tests temporarily from regress/schedule,
-because db_journal_test currently have known bugs:
-
-- server/gfmd/db_journal/db_journal_write.sh
-- server/gfmd/db_journal/db_journal_apply.sh
-
 ### ASAN/LSAN/UBSAN test
 
     (in a container)
@@ -219,12 +213,6 @@ because db_journal_test currently have known bugs:
     % sh ./regress.sh
     % sh ./restart.sh
     ... and check /var/tmp/gfarm.log.{a,l,ub}san.* on host c{1..8}
-
-NOTE:
-
-- please ignore /var/tmp/gfarm.log.lsan.gfsd.*,
-  because LSAN does NOT work with gfsd due to ptrace(2) isssue.
-  instead, please use valgrind for gfsd.
 
 ### TSAN test
 
@@ -236,6 +224,8 @@ NOTE:
     % sh ./regress.sh
     % sh ./restart.sh
     ... and check /var/tmp/gfarm.log.tsan.* on host c{1..8}
+
+If ASLR is not disabled on the host, `all.sh tsan clean` fails in configure with "cannot run C compiled programs", and config.log in the build directory shows "FATAL: ThreadSanitizer: unexpected memory mapping".  The sysctl setting is reset when the host (or WSL) restarts, so check it by `cat /proc/sys/kernel/randomize_va_space` (it should be 0) before the TSAN test.
 
 ## Create RPM packages
 

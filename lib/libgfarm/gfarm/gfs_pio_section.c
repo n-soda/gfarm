@@ -379,6 +379,14 @@ gfs_pio_view_section_reopen(GFS_File gf)
 	return ((*vc->ops->storage_reopen)(gf));
 }
 
+static void
+gfs_pio_view_section_revoke(GFS_File gf)
+{
+	struct gfs_file_section_context *vc = gf->view_context;
+
+	(*vc->ops->storage_revoke)(gf);
+}
+
 static int
 gfs_pio_view_section_fd(GFS_File gf)
 {
@@ -400,6 +408,7 @@ struct gfs_pio_ops gfs_pio_view_section_ops = {
 	gfs_pio_view_section_cksum,
 	gfs_pio_view_section_recvfile,
 	gfs_pio_view_section_sendfile,
+	gfs_pio_view_section_revoke,
 };
 
 
@@ -487,7 +496,7 @@ retry:
 		    gfm_client_connection_failover_count(gf->gfm_server);
 		int gfs_fc = gfs_client_connection_failover_count(gfs_server);
 
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005817,
 		    "gfs_pio_open_section: calling gfs_pio_failover: "
 		    "failover_count=%d/%d/%d", fs_fc, gfm_fc, gfs_fc);
 		if ((e = gfs_pio_failover(gf)) != GFARM_ERR_NO_ERROR) {
@@ -500,7 +509,7 @@ retry:
 		    gfarm_filesystem_get_by_connection(gf->gfm_server));
 		gfm_fc = gfm_client_connection_failover_count(gf->gfm_server);
 		gfs_fc = gfs_client_connection_failover_count(gfs_server);
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005818,
 		    "gfs_pio_open_section: done gfs_pio_failover: "
 		    "failover_count=%d/%d/%d", fs_fc, gfm_fc, gfs_fc);
 
@@ -510,7 +519,7 @@ retry:
 			 * in gfarm_filesystem. so gfs_server did not fail
 			 * over.
 			 */
-			gflog_debug(GFARM_MSG_UNFIXED,
+			gflog_debug(GFARM_MSG_1005819,
 			    "reset_process failover_count=%d->%d",
 			    gfs_fc, fs_fc);
 			gfs_client_connection_set_failover_count(
@@ -532,6 +541,7 @@ static gfarm_error_t
 connect_and_open(GFS_File gf, const char *hostname, int port)
 {
 	gfarm_error_t e;
+	struct gfm_connection *gfm_server;
 	struct gfs_connection *gfs_server;
 	int nretry = 1;
 	gfarm_timerval_t t1, t2, t3;
@@ -544,10 +554,21 @@ connect_and_open(GFS_File gf, const char *hostname, int port)
 	gfs_profile(gfarm_gettimerval(&t1));
 
 retry:
-	gfm_client_connection_addref(gf->gfm_server);
-	e = gfs_client_connection_and_process_acquire(&gf->gfm_server,
+	gfm_server = gf->gfm_server;
+	gfm_client_connection_addref(gfm_server);
+	e = gfs_client_connection_and_process_acquire(&gfm_server,
 	    hostname, port, &gfs_server, NULL);
-	gfm_client_connection_delref(gf->gfm_server);
+	if (gfm_server != gf->gfm_server) {
+		/*
+		 * gfm_server was replaced in
+		 * gfs_client_gfmd_failover_at_connect(), but
+		 * gf->gfm_server was not updated.
+		 * transfer the reference of the new connection to gf.
+		 */
+		gfm_client_connection_free(gf->gfm_server);
+		gf->gfm_server = gfm_server;
+	} else
+		gfm_client_connection_delref(gfm_server);
 	if (e != GFARM_ERR_NO_ERROR) {
 		gflog_debug(GFARM_MSG_1001350,
 		    "acquirement of client connection failed: %s",

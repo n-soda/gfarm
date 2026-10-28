@@ -49,4 +49,13 @@ $(OBJS): $(DEPGFARMINC) \
 	$(GFARMLIB_SRCDIR)/gfm_client.h \
 	$(GFARMLIB_SRCDIR)/gfs_profile.h \
 	$(srcdir)/gfsd_subr.h \
-	$(srcdir)/write_verify.h
+	$(srcdir)/write_verify.h \
+	$(INC_SRCDIR)/gfarm_iostat.h \
+	$(GFARMLIB_SRCDIR)/filesystem.h \
+	$(GFARMLIB_SRCDIR)/gfs_rdma.h \
+	$(GFARMLIB_SRCDIR)/iostat.h \
+	$(GFARMLIB_SRCDIR)/timespec.h \
+	$(GFUTIL_SRCDIR)/assert.h \
+	$(GFARMLIB_SRCDIR)/crc32.h \
+	$(GFUTIL_SRCDIR)/lsan_suppressions.h \
+	$(GFUTIL_SRCDIR)/tsan_suppressions.h

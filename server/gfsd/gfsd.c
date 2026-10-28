@@ -94,6 +94,8 @@
 #include "write_verify.h"
 
 #include "gfs_rdma.h"
+#include "lsan_suppressions.h"
+#include "tsan_suppressions.h"
 
 #define COMPAT_OLD_GFS_PROTOCOL
 
@@ -655,6 +657,51 @@ failover_notified(int do_logging, const char *diag)
 	    do_logging, "failover", diag);
 }
 
+/*
+ * discard failover notifications which have already arrived,
+ * because reconnecting to gfmd handles them.
+ * otherwise, the pending notification causes another reconnection
+ * after GFS_PROTO_PROCESS_RESET, and invalidates the process reset.
+ */
+static void
+failover_notify_drain(const char *diag)
+{
+	int rv;
+#ifdef HAVE_POLL
+	struct pollfd fds;
+#else /* !HAVE_POLL */
+	fd_set fds;
+	struct timeval t;
+#endif /* !HAVE_POLL */
+
+	if (!USING_PIPE_FOR_FAILOVER_SIGNAL(my_type) ||
+	    failover_notify_recv_fd == -1)
+		return;
+#ifndef HAVE_POLL
+	if (failover_notify_recv_fd >= FD_SETSIZE)
+		fatal(GFARM_MSG_1005870,
+		    "too big descriptor: failover_fd:%d exceeds %d",
+		    failover_notify_recv_fd, FD_SETSIZE);
+#endif /* !HAVE_POLL */
+	for (;;) {
+#ifdef HAVE_POLL
+		fds.fd = failover_notify_recv_fd;
+		fds.events = POLLIN;
+		rv = poll(&fds, 1, 0);
+#else /* !HAVE_POLL */
+		FD_ZERO(&fds);
+		FD_SET(failover_notify_recv_fd, &fds);
+		t.tv_sec = t.tv_usec = 0;
+		rv = select(failover_notify_recv_fd + 1, &fds, NULL, NULL, &t);
+#endif /* !HAVE_POLL */
+		if (rv == -1 && (errno == EINTR || errno == EAGAIN))
+			continue;
+		if (rv <= 0)
+			break;
+		failover_notified(debug_mode, diag);
+	}
+}
+
 static int
 sleep_or_wait_failover_recv_fd(int seconds)
 {
@@ -911,6 +958,7 @@ reconnect_gfm_server_for_failover(const char *diag)
 
 	gflog_notice(GFARM_MSG_1003348,
 	    "%s: gfmd may be failed over, try to reconnecting", diag);
+	failover_notify_drain(diag);
 	free_gfm_server();
 	if ((e = connect_gfm_server(diag))
 	    != GFARM_ERR_NO_ERROR) {
@@ -1386,7 +1434,7 @@ gfs_server_process_set(struct gfp_xdr *client)
 		    diag, keylen, sizeof(sharedkey));
 		e = GFARM_ERR_INVALID_ARGUMENT;
 	} else if (gfm_client_process_is_set(gfm_server)) {
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005822,
 		    "%s: process is already set: pid=%lld",
 		    diag, (long long)current_pid);
 		if (process_is(pid, keytype, keylen, sharedkey)) {
@@ -1405,7 +1453,7 @@ gfs_server_process_set(struct gfp_xdr *client)
 		process_record(pid, keytype, keylen, sharedkey);
 		(void)gfarm_proctitle_set("client/%lld %s",
 		    (long long)pid, gflog_get_auxiliary_info());
-		gflog_debug(GFARM_MSG_UNFIXED, "%s: pid=%lld",
+		gflog_debug(GFARM_MSG_1005823, "%s: pid=%lld",
 		    diag, (long long)current_pid);
 	}
 
@@ -1426,7 +1474,7 @@ gfs_server_process_reset(struct gfp_xdr *client)
 	gfs_server_get_request(client, diag,
 	    "ibli", &keytype, sizeof(sharedkey), &keylen, sharedkey, &pid,
 	    &failover_count);
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005824,
 	    "%s: pid=%lld->%lld, failover_count=%d->%d",
 	    diag, (long long)current_pid, (long long)pid,
 	    failover_count, client_failover_count);
@@ -1448,8 +1496,8 @@ gfs_server_process_reset(struct gfp_xdr *client)
 		failedover = close_all_fd_for_process_reset(client);
 
 		for (i = 0; i < 2; ++i) {
-			e = gfm_client_process_set(gfm_server, keytype, sharedkey,
-			    keylen, pid);
+			e = gfm_client_process_set(gfm_server,
+			    keytype, sharedkey, keylen, pid);
 			if (e == GFARM_ERR_NO_ERROR) {
 				client_failover_count = failover_count;
 				current_pid = pid;
@@ -1459,7 +1507,7 @@ gfs_server_process_reset(struct gfp_xdr *client)
 				break;
 			}
 			if (e == GFARM_ERR_ALREADY_EXISTS) {
-				gflog_debug(GFARM_MSG_UNFIXED, "%s: "
+				gflog_debug(GFARM_MSG_1005825, "%s: "
 				    "pid=%lld->%lld failover_count=%d->%d: %s",
 				    diag,
 				    (long long)current_pid, (long long)pid,
@@ -1486,7 +1534,7 @@ gfs_server_process_reset(struct gfp_xdr *client)
 				failedover = 1;
 			}
 		}
-		gflog_notice(GFARM_MSG_UNFIXED,
+		gflog_notice(GFARM_MSG_1005826,
 		    "%s: pid=%lld->%lld failover_count=%d->%d: %s",
 		    diag, (long long)current_pid, (long long)pid,
 		    failover_count, client_failover_count,
@@ -2660,7 +2708,7 @@ gfs_server_open_common(struct gfp_xdr *client, const char *diag,
 	}
 
 	if (debug_mode)
-		gflog_debug(GFARM_MSG_UNFIXED, "%s: pid=%lld fd=%d: %s",
+		gflog_debug(GFARM_MSG_1005827, "%s: pid=%lld fd=%d: %s",
 		    diag, (long long)current_pid, net_fd,
 		    gfarm_error_string(e));
 	gfs_server_put_reply(client, diag, e, "");
@@ -3492,7 +3540,7 @@ gfs_server_close(struct gfp_xdr *client)
 	gfs_server_get_request(client, diag, "i", &fd);
 	e = close_fd_somehow(client, fd, 0, diag);
 	if (debug_mode && e != GFARM_ERR_NO_ERROR)
-		gflog_debug(GFARM_MSG_UNFIXED, "%s: pid=%lld fd=%d: %s",
+		gflog_debug(GFARM_MSG_1005828, "%s: pid=%lld fd=%d: %s",
 		    diag, (long long)current_pid, fd, gfarm_error_string(e));
 	gfs_server_put_reply(client, diag, e, "");
 }
@@ -3600,7 +3648,7 @@ gfs_server_pwrite(struct gfp_xdr *client)
 	    &fd, sizeof(buffer), &size, buffer, &offset);
 
 	if (!fd_usable_to_gfmd) {
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005829,
 		    "%s: pid=%lld fd=%d: gfmd failed over",
 		    diag, (long long)current_pid, fd);
 		gfs_server_put_reply(client, diag, GFARM_ERR_GFMD_FAILED_OVER,
@@ -3658,7 +3706,7 @@ gfs_server_pwrite(struct gfp_xdr *client)
 		fe->write_time += gfarm_timerval_sub(&t2, &t1));
 reply:
 	if (save_errno != 0 && debug_mode)
-		gflog_debug(GFARM_MSG_UNFIXED, "%s: pid=%lld fd=%d: %s",
+		gflog_debug(GFARM_MSG_1005830, "%s: pid=%lld fd=%d: %s",
 		    diag, (long long)current_pid, fd, strerror(save_errno));
 	gfs_server_put_reply_with_errno(client, diag, save_errno,
 	    "i", (gfarm_int32_t)rv);
@@ -3684,7 +3732,7 @@ gfs_server_write(struct gfp_xdr *client)
 	    &fd, sizeof(buffer), &size, buffer);
 
 	if (!fd_usable_to_gfmd) {
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005831,
 		    "%s: pid=%lld fd=%d: gfmd failed over",
 		    diag, (long long)current_pid, fd);
 		gfs_server_put_reply(client, diag, GFARM_ERR_GFMD_FAILED_OVER,
@@ -3741,7 +3789,7 @@ gfs_server_write(struct gfp_xdr *client)
 		fe->write_time += gfarm_timerval_sub(&t2, &t1));
 
 	if (save_errno != 0 && debug_mode)
-		gflog_debug(GFARM_MSG_UNFIXED, "%s: pid=%lld fd=%d: %s",
+		gflog_debug(GFARM_MSG_1005832, "%s: pid=%lld fd=%d: %s",
 		    diag, (long long)current_pid, fd, strerror(save_errno));
 	gfs_server_put_reply_with_errno(client, diag, save_errno,
 	    "ill", (gfarm_int32_t)rv, written_offset, total_file_size);
@@ -3845,7 +3893,7 @@ gfs_server_bulkwrite(struct gfp_xdr *client)
 	gfs_server_get_request(client, diag, "il", &fd, &offset);
 
 	if (!fd_usable_to_gfmd) {
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005833,
 		    "%s: pid=%lld fd=%d: gfmd failed over",
 		    diag, (long long)current_pid, fd);
 		gfs_server_put_reply(client, diag, GFARM_ERR_GFMD_FAILED_OVER,
@@ -3860,7 +3908,7 @@ gfs_server_bulkwrite(struct gfp_xdr *client)
 	else
 		e = GFARM_ERR_NO_ERROR;
 	if (e != GFARM_ERR_NO_ERROR && debug_mode)
-		gflog_debug(GFARM_MSG_UNFIXED, "%s: pid=%lld fd=%d: %s",
+		gflog_debug(GFARM_MSG_1005834, "%s: pid=%lld fd=%d: %s",
 		    diag, (long long)current_pid, fd, gfarm_error_string(e));
 	e2 = gfp_xdr_send(client, "i", (gfarm_int32_t)e);
 	if (e2 == GFARM_ERR_NO_ERROR)
@@ -3913,7 +3961,7 @@ gfs_server_bulkwrite(struct gfp_xdr *client)
 		);
 
 		if (e != GFARM_ERR_NO_ERROR && debug_mode)
-			gflog_debug(GFARM_MSG_UNFIXED,
+			gflog_debug(GFARM_MSG_1005835,
 			    "%s: pid=%lld fd=%d: %s", diag,
 			    (long long)current_pid, fd, gfarm_error_string(e));
 		gfs_server_put_reply(client, diag,
@@ -5040,7 +5088,7 @@ replicator_main(int req_fd, int res_fd,
     gfarm_error_t e;
     struct gfs_connection *gfs_server = NULL;
 
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005836,
 		"%s: connecting to %s:%d as %s",
 		diag, host, port, user);
 
@@ -5050,7 +5098,7 @@ replicator_main(int req_fd, int res_fd,
 		ssize_t rv;
 		union replication_results res;
 
-		gflog_notice(GFARM_MSG_UNFIXED,
+		gflog_notice(GFARM_MSG_1005837,
 			"connect to %s:%d failed: %s",
 			host, port, gfarm_error_string(e));
 
@@ -5061,10 +5109,10 @@ replicator_main(int req_fd, int res_fd,
 		rv = write(res_fd, &res, sz);
 
 		if (rv < 0) {
-			gflog_error(GFARM_MSG_UNFIXED,
+			gflog_error(GFARM_MSG_1005838,
 				"write error: %s", strerror(errno));
 		} else if (rv != sz) {
-			gflog_error(GFARM_MSG_UNFIXED,
+			gflog_error(GFARM_MSG_1005839,
 				"partial write: %zd < %zu", rv, sz);
 		}
 
@@ -5072,7 +5120,7 @@ replicator_main(int req_fd, int res_fd,
     }
 
     for (;;) {
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005840,
 			"%s: waiting for replication request from %s:%d",
 			diag, host, port);
 
@@ -5092,18 +5140,18 @@ replicator_main(int req_fd, int res_fd,
 		if (rv < 0) {
 			if (errno == EINTR)
 				continue;
-			gflog_error(GFARM_MSG_UNFIXED,
+			gflog_error(GFARM_MSG_1005841,
 				"read error: %s", strerror(errno));
 			break;
 		}
 
 		if (rv != sizeof(req)) {
-			gflog_error(GFARM_MSG_UNFIXED,
+			gflog_error(GFARM_MSG_1005842,
 				"partial read");
 			break;
 		}
 
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005843,
 			"%s: received replication request for"
 			" %lld:%lld from %s:%d",
 			diag, (long long)req.ino, (long long)req.gen,
@@ -5118,12 +5166,12 @@ replicator_main(int req_fd, int res_fd,
 		}
 
 		if (req.command != REPLICATION) {
-			gflog_warning(GFARM_MSG_UNFIXED,
+			gflog_warning(GFARM_MSG_1005844,
 				"unknown command: %u", req.command);
 			continue;
 		}
 
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005845,
 			"%s: replication request for %lld:%lld from %s:%d",
 			diag, (long long)req.ino, (long long)req.gen,
 			host, port);
@@ -5164,11 +5212,11 @@ replicator_main(int req_fd, int res_fd,
 
 		rv = write(res_fd, &res, sz);
 		if (rv < 0) {
-			gflog_error(GFARM_MSG_UNFIXED,
+			gflog_error(GFARM_MSG_1005846,
 				"write error: %s", strerror(errno));
 			break;
 		} else if (rv != sz) {
-			gflog_error(GFARM_MSG_UNFIXED,
+			gflog_error(GFARM_MSG_1005847,
 				"%s: partial write: %zd < %zu", diag, rv, sz);
 			break;
 		}
@@ -5225,7 +5273,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 	    "GFS_PROTO_REPLICATION_CKSUM_REQUEST" :
 	    "GFS_PROTO_REPLICATION_REQUEST";
 
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005848,
 		"try replication for %s:%d: ino=%lld, gen=%lld, seq_num=%lld",
 		gfp_conn_hash_hostname(q), gfp_conn_hash_port(q),
 		(long long)rep->ino, (long long)rep->gen,
@@ -5241,7 +5289,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 		char *user = strdup(gfm_client_username(gfm_server));
 		struct sockaddr peer_addr;
 
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005849,
 			"create child process for replication for %s:%d: "
 			"ino=%lld, gen=%lld, seq_num=%lld",
 			gfp_conn_hash_hostname(q), gfp_conn_hash_port(q),
@@ -5275,7 +5323,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 			gfp_conn_hash_hostname(q),
 			gfp_conn_hash_port(q),
 			&peer_addr, NULL)) != GFARM_ERR_NO_ERROR) {
-			gflog_error(GFARM_MSG_UNFIXED,
+			gflog_error(GFARM_MSG_1005850,
 				"%s: cannot get host address: %s",
 				diag, gfp_conn_hash_hostname(q));
 			close(c2p[0]);
@@ -5289,7 +5337,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 			(void)gfarm_proctitle_set(
 				"replication %s", gfp_conn_hash_hostname(q));
 
-			gflog_debug(GFARM_MSG_UNFIXED,
+			gflog_debug(GFARM_MSG_1005851,
 				"child process for replication"
 				" started: %s:%d:%s",
 				gfp_conn_hash_hostname(q),
@@ -5316,7 +5364,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 				close(p2c[1]);
 			} else {
 
-				gflog_debug(GFARM_MSG_UNFIXED,
+				gflog_debug(GFARM_MSG_1005852,
 					"child process for replication created:"
 					"%s:%d: pid=%d",
 					gfp_conn_hash_hostname(q),
@@ -5327,7 +5375,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 					malloc(sizeof(*qd->replicator));
 				if (qd->replicator == NULL) {
 					dst_err = GFARM_ERR_NO_MEMORY;
-					gflog_error(GFARM_MSG_UNFIXED,
+					gflog_error(GFARM_MSG_1005853,
 						"%s: cannot allocate memory "
 						"for replicator for %s:%d: %s",
 						diag, gfp_conn_hash_hostname(q),
@@ -5349,7 +5397,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 		}
 	}
 
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005854,
 		"child process for replication: %s:%d: %s",
 		gfp_conn_hash_hostname(q), gfp_conn_hash_port(q),
 		qd->replicator != NULL && qd->replicator->alive ?
@@ -5374,7 +5422,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 		ongoing_replications.ongoing_prev->ongoing_next = rep;
 		ongoing_replications.ongoing_prev = rep;
 
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005855,
 			"send replication request to child process for %s:%d: "
 			"ino=%lld, gen=%lld, seq_num=%lld",
 			gfp_conn_hash_hostname(q), gfp_conn_hash_port(q),
@@ -5384,7 +5432,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 		qd->replicator->busy = 1;
 		w = write(qd->replicator->write_fd, rep, sizeof(*rep));
 		if (w < 0) {
-			gflog_error(GFARM_MSG_UNFIXED,
+			gflog_error(GFARM_MSG_1005856,
 				"write to worker failed: %s", strerror(errno));
 
 			rep->ongoing_prev->ongoing_next = rep->ongoing_next;
@@ -5398,7 +5446,7 @@ try_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 			remove_head = 1;
 
 		} else if (w != sizeof(*rep)) {
-			gflog_error(GFARM_MSG_UNFIXED,
+			gflog_error(GFARM_MSG_1005857,
 				"partial write to worker: %zd < %zu",
 				w, sizeof(*rep));
 
@@ -5449,7 +5497,7 @@ start_replication(struct gfp_xdr *conn, struct gfarm_hash_entry *q)
 	gfarm_error_t gfmd_err;
 	static const char diag[] = "GFS_PROTO_REPLICATION_REQUEST";
 
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005858,
 	    "%s: start replication for %s:%d",
 	    diag, gfp_conn_hash_hostname(q), gfp_conn_hash_port(q));
 
@@ -5479,7 +5527,7 @@ gfs_async_server_replication_request(struct gfp_xdr *conn,
 	    "GFS_PROTO_REPLICATION_CKSUM_REQUEST" :
 	    "GFS_PROTO_REPLICATION_REQUEST";
 
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005859,
 	    "%s: request for %s, handling_cksum_protocol=%d",
 	    diag, user, handling_cksum_protocol);
 
@@ -6682,7 +6730,7 @@ replicator_stop(struct replication_queue_data *qd)
 	if (qd->replicator == NULL)
 		return;
 
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005860,
 	    "send EXIT command to child process");
 
 	memset(&exit_req, 0, sizeof(exit_req));
@@ -6691,11 +6739,11 @@ replicator_stop(struct replication_queue_data *qd)
 	w = write(qd->replicator->write_fd, &exit_req, sizeof(exit_req));
 
 	if (w < 0) {
-		gflog_error(GFARM_MSG_UNFIXED,
+		gflog_error(GFARM_MSG_1005861,
 		    "write EXIT command failed: %s",
 		    strerror(errno));
 	} else if (w != sizeof(exit_req)) {
-		gflog_error(GFARM_MSG_UNFIXED,
+		gflog_error(GFARM_MSG_1005862,
 		    "partial write EXIT command: %zd < %zu",
 		    w, sizeof(exit_req));
 	}
@@ -6728,7 +6776,7 @@ replication_result_notify(struct gfp_xdr *bc_conn,
 	gfsd_local_path(rep->ino, rep->gen, diag, &path);
 
 	if (stat(path, &st) == -1) {
-		gflog_error(GFARM_MSG_UNFIXED,
+		gflog_error(GFARM_MSG_1005863,
 			"%s: stat failed for %lld:%lld: %s",
 			diag,
 			(long long)rep->ino,
@@ -6738,7 +6786,7 @@ replication_result_notify(struct gfp_xdr *bc_conn,
 	}
 	free(path);
 
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005864,
 		"%s: read child result: ino=%lld gen=%lld seq_num=%lld "
 		"src_errcode=%d dst_errcode=%d size=%lld",
 		diag,
@@ -6776,7 +6824,7 @@ replication_result_notify(struct gfp_xdr *bc_conn,
 
 		replicator_stop(qd);
 
-		gflog_notice(GFARM_MSG_UNFIXED,
+		gflog_notice(GFARM_MSG_1005865,
 			"%s: replication failed: ino=%lld gen=%lld "
 			"src_err=%d dst_err=%d, destroy worker",
 			diag,
@@ -6825,7 +6873,7 @@ replication_result_notify(struct gfp_xdr *bc_conn,
 	if (rep == NULL) {
 		qd->tail = &qd->head;
 
-		gflog_debug(GFARM_MSG_UNFIXED,
+		gflog_debug(GFARM_MSG_1005866,
 			"replicator=%d, gfarm_spool_server_replicator_max=%d",
 			replicator_count, gfarm_spool_server_replicator_max);
 
@@ -6872,7 +6920,7 @@ watch_fds(struct gfp_xdr *conn, gfp_xdr_async_peer_t async)
 	static struct pollfd *fds = NULL;
 	static struct replication_request **fd_rep_map = NULL;
 
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005867,
 		"watch_fds: poll");
 
 	for (;;) {
@@ -6911,7 +6959,7 @@ watch_fds(struct gfp_xdr *conn, gfp_xdr_async_peer_t async)
 			struct replication_queue_data *qd =
 			    gfarm_hash_entry_data(rep->q);
 
-			gflog_debug(GFARM_MSG_UNFIXED,
+			gflog_debug(GFARM_MSG_1005868,
 				"watch: ino=%lld seq=%lld busy=%d fd=%d",
 				(long long)rep->ino,
 				(long long)rep->seq_num,
@@ -6969,7 +7017,7 @@ watch_fds(struct gfp_xdr *conn, gfp_xdr_async_peer_t async)
 	struct timeval timeout;
 	struct replication_request *next;
 
-	gflog_debug(GFARM_MSG_UNFIXED,
+	gflog_debug(GFARM_MSG_1005869,
 		"watch_fds: select");
 
 	for (;;) {
@@ -7518,6 +7566,32 @@ usage(void)
 	exit(1);
 }
 
+#if defined(__SANITIZE_ADDRESS__)
+#define GFSD_LEAK_CHECK_AT_EXIT
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(leak_sanitizer)
+#define GFSD_LEAK_CHECK_AT_EXIT
+#endif
+#endif
+
+#ifdef GFSD_LEAK_CHECK_AT_EXIT
+/*
+ * LeakSanitizer checks leaks at exit by ptrace(2)ing this process,
+ * but ptrace(2) is not permitted while the effective uid differs from
+ * the real uid, since gfsd runs with seteuid(gfsd_uid).
+ * this restores the effective uid before the check.
+ * this is called before the check, because atexit handlers are called
+ * in the reverse order of their registration.
+ */
+static void
+restore_euid_for_leak_check(void)
+{
+	if (seteuid(getuid()) == -1)
+		gflog_debug_errno(GFARM_MSG_1005875,
+		    "seteuid(%d) for leak check", (int)getuid());
+}
+#endif
+
 int
 main(int argc, char **argv)
 {
@@ -7536,10 +7610,16 @@ main(int argc, char **argv)
 	int syslog_level = -1;
 	char *syslog_file = NULL;
 	struct in_addr *self_addresses, listen_address;
-	int table_size, self_addresses_count, ch, i, nfound, max_fd, p;
+	int table_size, self_addresses_count, ch, i, nfound, p;
 	int save_errno;
 	struct sigaction sa;
+#ifdef HAVE_POLL
+	struct pollfd *fds;
+	int nfds, local_fds_base, udp_fds_base;
+#else /* !HAVE_POLL */
+	int max_fd;
 	fd_set requests;
+#endif /* !HAVE_POLL */
 	struct stat sb;
 	int spool_check_level = 0;
 	int is_root = geteuid() == 0;
@@ -7679,6 +7759,11 @@ main(int argc, char **argv)
 	if (seteuid(gfsd_uid) == -1 && is_root)
 		gflog_error_errno(GFARM_MSG_1002393,
 		    "seteuid(%d)", (int)gfsd_uid);
+#ifdef GFSD_LEAK_CHECK_AT_EXIT
+	if (atexit(restore_euid_for_leak_check) != 0)
+		gflog_error(GFARM_MSG_1005876,
+		    "atexit(restore_euid_for_leak_check) failed");
+#endif
 
 	e = gfarm_set_local_user_for_this_local_account();
 	if (e != GFARM_ERR_NO_ERROR) {
@@ -7880,6 +7965,28 @@ main(int argc, char **argv)
 	    self_addresses_count, self_addresses, self_info.port);
 	accepting.udp_socks_count = self_addresses_count;
 
+#ifdef HAVE_POLL
+	/*
+	 * poll(2) is used instead of select(2), because ThreadSanitizer
+	 * does not intercept select(2), and does not deliver signals
+	 * such as SIGTERM while this process is blocked in select(2).
+	 */
+	local_fds_base = 1;
+	udp_fds_base = local_fds_base + accepting.local_socks_count;
+	nfds = udp_fds_base + accepting.udp_socks_count;
+	GFARM_MALLOC_ARRAY(fds, nfds);
+	if (fds == NULL)
+		accepting_fatal(GFARM_MSG_1005877,
+		    "cannot allocate pollfds for accepting sockets (%d)",
+		    nfds);
+	fds[0].fd = accepting.tcp_sock;
+	for (i = 0; i < accepting.local_socks_count; i++)
+		fds[local_fds_base + i].fd = accepting.local_socks[i].sock;
+	for (i = 0; i < accepting.udp_socks_count; i++)
+		fds[udp_fds_base + i].fd = accepting.udp_socks[i];
+	for (i = 0; i < nfds; i++)
+		fds[i].events = POLLIN;
+#else /* !HAVE_POLL */
 	max_fd = accepting.tcp_sock;
 	for (i = 0; i < accepting.local_socks_count; i++) {
 		if (max_fd < accepting.local_socks[i].sock)
@@ -7892,6 +7999,7 @@ main(int argc, char **argv)
 	if (max_fd >= FD_SETSIZE)
 		accepting_fatal(GFARM_MSG_1000597,
 		    "too big socket file descriptor: %d", max_fd);
+#endif /* !HAVE_POLL */
 
 	if (seteuid(gfsd_uid) == -1) {
 		save_errno = errno;
@@ -7957,6 +8065,9 @@ main(int argc, char **argv)
 		    "accepting TCP socket O_NONBLOCK");
 
 	for (;;) {
+#ifdef HAVE_POLL
+		nfound = poll(fds, nfds, -1);
+#else /* !HAVE_POLL */
 		FD_ZERO(&requests);
 		FD_SET(accepting.tcp_sock, &requests);
 		for (i = 0; i < accepting.local_socks_count; i++)
@@ -7964,6 +8075,7 @@ main(int argc, char **argv)
 		for (i = 0; i < accepting.udp_socks_count; i++)
 			FD_SET(accepting.udp_socks[i], &requests);
 		nfound = select(max_fd + 1, &requests, NULL, NULL, NULL);
+#endif /* !HAVE_POLL */
 		if (nfound <= 0) {
 			save_errno = errno;
 			if (got_sigchld)
@@ -7972,16 +8084,29 @@ main(int argc, char **argv)
 			    save_errno == EAGAIN)
 				continue;
 			errno = save_errno;
+#ifdef HAVE_POLL
+			fatal_errno(GFARM_MSG_1005878, "poll");
+#else /* !HAVE_POLL */
 			fatal_errno(GFARM_MSG_1000600, "select");
+#endif /* !HAVE_POLL */
 		}
 
-		if (FD_ISSET(accepting.tcp_sock, &requests)) {
+#ifdef HAVE_POLL
+		if (fds[0].revents != 0)
+#else /* !HAVE_POLL */
+		if (FD_ISSET(accepting.tcp_sock, &requests))
+#endif /* !HAVE_POLL */
+		{
 			start_server(accepting.tcp_sock,
 			    (struct sockaddr*)&client_addr,sizeof(client_addr),
 			    (struct sockaddr*)&client_addr, NULL, &accepting);
 		}
 		for (i = 0; i < accepting.local_socks_count; i++) {
+#ifdef HAVE_POLL
+			if (fds[local_fds_base + i].revents != 0)
+#else /* !HAVE_POLL */
 			if (FD_ISSET(accepting.local_socks[i].sock, &requests))
+#endif /* !HAVE_POLL */
 				start_server(accepting.local_socks[i].sock,
 				    (struct sockaddr *)&client_local_addr,
 				    sizeof(client_local_addr),
@@ -7990,7 +8115,11 @@ main(int argc, char **argv)
 				    &accepting);
 		}
 		for (i = 0; i < accepting.udp_socks_count; i++) {
+#ifdef HAVE_POLL
+			if (fds[udp_fds_base + i].revents != 0)
+#else /* !HAVE_POLL */
 			if (FD_ISSET(accepting.udp_socks[i], &requests))
+#endif /* !HAVE_POLL */
 				datagram_server(accepting.udp_socks[i]);
 		}
 	}

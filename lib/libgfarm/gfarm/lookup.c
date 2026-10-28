@@ -1231,6 +1231,15 @@ gfm_name2_op0(const char *src, const char *dst, int flags,
 					if (same_mds)
 						dconn_locked = 0;
 				}
+				if (dconn_locked && !same_mds) {
+					/*
+					 * to keep locking order, since
+					 * gfm_client_connection_free() may
+					 * lock sconn
+					 */
+					gfm_client_connection_unlock(dconn);
+					dconn_locked = 0;
+				}
 				gfm_client_connection_free(sconn);
 				sconn = NULL;
 			}
@@ -1251,6 +1260,15 @@ gfm_name2_op0(const char *src, const char *dst, int flags,
 					dconn_locked = 0;
 					if (same_mds)
 						sconn_locked = 0;
+				}
+				if (sconn_locked && !same_mds) {
+					/*
+					 * to keep locking order, since
+					 * gfm_client_connection_free() may
+					 * lock dconn
+					 */
+					gfm_client_connection_unlock(sconn);
+					sconn_locked = 0;
 				}
 				gfm_client_connection_free(dconn);
 				dconn = NULL;
@@ -1621,7 +1639,6 @@ on_error_result:
 		sconn_locked = 0;
 		if (same_mds)
 			dconn_locked = 0;
-		*sconnp = sconn;
 	}
 	if (dconn && dconn_locked) {
 		gfm_client_connection_unlock(dconn);
@@ -1629,8 +1646,24 @@ on_error_result:
 		if (same_mds)
 			sconn_locked = 0;
 	}
-	if (dconn && !same_mds)
-		*dconnp = dconn;
+	/*
+	 * the caller releases *sconnp and *dconnp.
+	 * sconn must be passed even if it is not locked, e.g. when an error
+	 * occurred before locking, otherwise the reference is leaked.
+	 */
+	if (sconn != NULL)
+		*sconnp = sconn;
+	if (dconn != NULL) {
+		if (dconn == sconn) {
+			/*
+			 * the same connection was acquired twice
+			 * by gfarm_url_parse_metadb(), but the caller
+			 * releases only *sconnp.
+			 */
+			gfm_client_connection_free(dconn);
+		} else
+			*dconnp = dconn;
+	}
 
 	if (is_success)
 		return (*success_op)(sconn, closure);
