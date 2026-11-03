@@ -216,6 +216,11 @@ static pthread_mutex_t journal_log_verbose_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int journal_log_verbose = 0;
 static const char journal_log_verbose_diag[] = "journal_log_verbose";
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_log_verbose_mutex
+ * SLEEPS: no
+ */
 int
 journal_log_verbose_get(void)
 {
@@ -231,6 +236,11 @@ journal_log_verbose_get(void)
 	return (verbose);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_log_verbose_mutex
+ * SLEEPS: no
+ */
 void
 journal_log_verbose_set(int verbose)
 {
@@ -274,6 +284,11 @@ journal_file_mutex_unlock(struct journal_file *jf, const char *diag)
 	gfarm_mutex_unlock(&jf->mutex, diag, JOURNAL_FILE_STR);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: no
+ */
 int
 journal_file_is_waiting_until_nonempty(struct journal_file *jf)
 {
@@ -334,6 +349,11 @@ journal_file_reader_invalidate_unlocked(struct journal_file_reader *reader)
 	}
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: no
+ */
 void
 journal_file_reader_invalidate(struct journal_file_reader *reader)
 {
@@ -355,6 +375,11 @@ journal_file_reader_close_unlocked(struct journal_file_reader *reader)
 	free(reader);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: no
+ */
 void
 journal_file_reader_close(struct journal_file_reader *reader)
 {
@@ -372,6 +397,11 @@ journal_file_reader_xdr(struct journal_file_reader *reader)
 	return (reader->xdr);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: no
+ */
 void
 journal_file_reader_committed_pos(struct journal_file_reader *reader,
     off_t *rposp, gfarm_uint64_t *rlapp)
@@ -384,6 +414,11 @@ journal_file_reader_committed_pos(struct journal_file_reader *reader,
 	journal_file_mutex_unlock(jf, diag);
 }
 
+/*
+ * PREREQUISITE: journal_file_mutex
+ * LOCKS: nothing
+ * SLEEPS: no
+ */
 void
 journal_file_reader_committed_pos_unlocked(struct journal_file_reader *reader,
     off_t *rposp, gfarm_uint64_t *rlapp)
@@ -399,6 +434,11 @@ journal_file_reader_fd_pos(struct journal_file_reader *reader)
 	return (reader->fd_pos);
 }
 
+/*
+ * PREREQUISITE: journal_file_mutex
+ * LOCKS: nothing
+ * SLEEPS: no
+ */
 static int
 journal_file_reader_is_empty(struct journal_file_reader *reader)
 {
@@ -446,12 +486,22 @@ journal_file_reader_is_invalid(struct journal_file_reader *reader)
 	return (JOURNAL_FILE_READER_IS_INVALID(reader));
 }
 
+/*
+ * PREREQUISITE: journal_file_mutex
+ * LOCKS: nothing
+ * SLEEPS: no
+ */
 static int
 journal_file_reader_is_expired_unlocked(struct journal_file_reader *reader)
 {
 	return (JOURNAL_FILE_READER_IS_EXPIRED(reader));
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: no
+ */
 int
 journal_file_reader_is_expired(struct journal_file_reader *reader)
 {
@@ -752,6 +802,11 @@ journal_file_reader_rewind(struct journal_file_reader *reader)
 static struct gflog_reduced_state wait_log_state =
 	GFLOG_REDUCED_STATE_INITIALIZER(3, 60, 600, 60);
 
+/*
+ * PREREQUISITE: journal_file_mutex
+ * LOCKS: nothing
+ * SLEEPS: maybe (cond_wait on nonfull_cond until the reader catches up)
+ */
 static int
 journal_file_reader_writer_wait(struct journal_file_reader *reader,
 	struct journal_file *jf, size_t rec_len)
@@ -829,6 +884,11 @@ journal_file_reader_writer_wait(struct journal_file_reader *reader,
 	return (waited);
 }
 
+/*
+ * PREREQUISITE: journal_file_mutex
+ * LOCKS: nothing
+ * SLEEPS: no
+ */
 static gfarm_error_t
 journal_file_reader_check_pos(struct journal_file_reader *reader,
 	struct journal_file *jf, size_t rec_len)
@@ -888,6 +948,11 @@ journal_file_reader_check_pos(struct journal_file_reader *reader,
 	return (GFARM_ERR_NO_ERROR);
 }
 
+/*
+ * PREREQUISITE: journal_file_mutex
+ * LOCKS: nothing
+ * SLEEPS: yes (file I/O: fills the rest of the journal file with zeros)
+ */
 static gfarm_error_t
 journal_file_writer_rewind(struct journal_file *jf)
 {
@@ -1195,6 +1260,11 @@ journal_recv_is_ready_op(void *cookie)
 	return (0); /* not internally buffered */
 }
 
+/*
+ * PREREQUISITE: journal_file_mutex
+ * LOCKS: nothing
+ * SLEEPS: yes (file I/O)
+ */
 static int
 journal_blocking_read_op(struct gfarm_iobuffer *b,
 	void *cookie, int fd, void *data, int length)
@@ -1248,6 +1318,11 @@ journal_blocking_read_op(struct gfarm_iobuffer *b,
 	return (ssz);
 }
 
+/*
+ * PREREQUISITE: journal_file_mutex
+ * LOCKS: nothing
+ * SLEEPS: yes (file I/O)
+ */
 static int
 journal_blocking_write_op(struct gfarm_iobuffer *b,
 	void *cookie, int fd, void *data, int length)
@@ -1326,6 +1401,11 @@ static struct gfp_iobuffer_ops journal_iobuffer_ops = {
 	journal_blocking_write_op,
 };
 
+/*
+ * PREREQUISITE: journal_file_mutex (or called from journal_file_open())
+ * LOCKS: nothing
+ * SLEEPS: no
+ */
 static gfarm_error_t
 journal_file_reader_init(struct journal_file *jf, int fd,
 	off_t pos, gfarm_uint64_t lap, int block_writer,
@@ -1363,6 +1443,11 @@ journal_file_reader_init(struct journal_file *jf, int fd,
 	return (GFARM_ERR_NO_ERROR);
 }
 
+/*
+ * PREREQUISITE: journal_file_mutex (or called from journal_file_open())
+ * LOCKS: nothing
+ * SLEEPS: no
+ */
 static gfarm_error_t
 journal_file_reader_new(struct journal_file *jf, int fd,
 	off_t pos, gfarm_uint64_t lap, int block_writer, const char *label,
@@ -1560,6 +1645,11 @@ error:
 	return (e);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex -> gfarm_privilege_lock()
+ * SLEEPS: yes (file I/O: open() and journal_find_rw_pos())
+ */
 gfarm_error_t
 journal_file_reader_reopen_if_needed(struct journal_file *jf,
 	const char *label, struct journal_file_reader **readerp,
@@ -1637,6 +1727,12 @@ unlock:
 	return (e);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: yes (cond_wait on nonfull_cond until the main reader reaches
+ *	the writer position)
+ */
 void
 journal_file_wait_until_empty(struct journal_file *jf)
 {
@@ -1657,6 +1753,11 @@ journal_file_wait_until_empty(struct journal_file *jf)
 #endif
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: maybe (closing the writer xdr)
+ */
 void
 journal_file_close(struct journal_file *jf)
 {
@@ -1692,6 +1793,11 @@ journal_file_is_closed(struct journal_file *jf)
 	return (jf->path == NULL);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: nothing
+ * SLEEPS: yes (fdatasync or fsync)
+ */
 gfarm_error_t
 journal_file_writer_sync(struct journal_file_writer *writer)
 {
@@ -1704,6 +1810,11 @@ journal_file_writer_sync(struct journal_file_writer *writer)
 	return (GFARM_ERR_NO_ERROR);
 }
 
+/*
+ * PREREQUISITE: journal_file_mutex
+ * LOCKS: nothing
+ * SLEEPS: yes (file I/O)
+ */
 gfarm_error_t
 journal_file_writer_flush(struct journal_file_writer *writer)
 {
@@ -1768,6 +1879,12 @@ journal_write_footer(struct gfp_xdr *xdr, size_t data_len,
 	return (e);
 }
 
+/*
+ * PREREQUISITE: nothing (giant_lock, if called via db_journal_write())
+ * LOCKS: journal_file_mutex
+ * SLEEPS: yes (file I/O, and cond_wait on nonfull_cond in
+ *	journal_file_reader_writer_wait() until blocking readers catch up)
+ */
 gfarm_error_t
 journal_file_write(struct journal_file *jf, gfarm_uint64_t seqnum,
 	enum journal_operation ope, void *arg,
@@ -1945,6 +2062,16 @@ journal_read_purge(struct gfp_xdr *xdr, int len)
 	return (e);
 }
 
+/*
+ * PREREQUISITE: nothing (must not hold giant_lock, if post_read_op is
+ *	db_journal_apply_op())
+ * LOCKS: journal_file_mutex -> journal_log_verbose_mutex,
+ *	journal_file_mutex -> the locks of read_op and post_read_op
+ *	(db_journal_apply_op() unlocks journal_file_mutex once, and takes
+ *	giant_lock -> journal_file_mutex)
+ * SLEEPS: yes (file I/O, and cond_wait on nonempty_cond until a record
+ *	is written)
+ */
 gfarm_error_t
 journal_file_read(struct journal_file_reader *reader, void *op_arg,
 	journal_read_op_t read_op,
@@ -2047,7 +2174,13 @@ unlock:
 	return (e);
 }
 
-/* recp must be freed by caller */
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: yes (file I/O)
+ *
+ * recp must be freed by caller
+ */
 gfarm_error_t
 journal_file_read_serialized(struct journal_file_reader *reader,
 	char **recp, gfarm_uint32_t *sizep, gfarm_uint64_t *seqnump, int *eofp)
@@ -2141,6 +2274,11 @@ end:
 	return (e);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: yes (cond_wait on drain_cond until the reader is drained)
+ */
 void
 journal_file_wait_for_read_completion(struct journal_file_reader *reader)
 {
@@ -2159,6 +2297,12 @@ journal_file_wait_for_read_completion(struct journal_file_reader *reader)
 	journal_file_mutex_unlock(jf, diag);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: yes (cond_wait on nonempty_cond until some reader has
+ *	unread records)
+ */
 void
 journal_file_wait_until_readable(struct journal_file *jf)
 {
@@ -2188,6 +2332,12 @@ journal_file_wait_until_readable(struct journal_file *jf)
 	journal_file_mutex_unlock(jf, diag);
 }
 
+/*
+ * PREREQUISITE: nothing
+ * LOCKS: journal_file_mutex
+ * SLEEPS: yes (file I/O, and cond_wait on nonfull_cond in
+ *	journal_file_reader_writer_wait() until blocking readers catch up)
+ */
 gfarm_error_t
 journal_file_write_raw(struct journal_file *jf, int recs_len,
 	unsigned char *recs, gfarm_uint64_t *last_seqnump, int *trans_nestp)
