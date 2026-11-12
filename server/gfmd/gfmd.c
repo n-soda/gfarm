@@ -130,6 +130,19 @@ gfarm_error_t (*gfm_server_protocol_extension)(struct peer *,
 	gfarm_int32_t *, gfarm_error_t *) =
 		gfm_server_protocol_extension_default;
 
+/*
+ * a request which hands the peer over to the gfmd channel or the back channel
+ */
+static int
+protocol_is_channel_switch(gfarm_int32_t request)
+{
+	return (request == GFM_PROTO_SWITCH_GFMD_CHANNEL ||
+#ifdef COMPAT_GFARM_2_3
+	    request == GFM_PROTO_SWITCH_BACK_CHANNEL ||
+#endif
+	    request == GFM_PROTO_SWITCH_ASYNC_BACK_CHANNEL);
+}
+
 gfarm_error_t
 protocol_switch(struct peer *peer, int from_client, int skip, int level,
 	gfarm_int32_t last_sync_request,
@@ -155,6 +168,17 @@ protocol_switch(struct peer *peer, int from_client, int skip, int level,
 	*requestp = request;
 
 	peer_stat_add(peer, GFARM_IOSTAT_TRAN_NUM, 1);
+	if (level > 0 && protocol_is_channel_switch(request)) {
+		/*
+		 * a channel switch is not allowed inside of a COMPOUND block,
+		 * since protocol_service() cannot handle the peer correctly.
+		 */
+		gflog_notice(GFARM_MSG_1005892,
+		    "request %d is not allowed inside of a COMPOUND block",
+		    (int)request);
+		peer_record_protocol_error(peer); /* mark this peer finished */
+		return (GFARM_ERR_PROTOCOL);
+	}
 	switch (request) {
 	case GFM_PROTO_HOST_INFO_GET_ALL:
 		e = gfm_server_host_info_get_all(peer, from_client, skip);
@@ -747,23 +771,22 @@ protocol_service(struct peer *peer)
 		e = protocol_switch(peer, from_client, 0, 0,
 		    ps->last_sync_request,
 		    &request, &dummy, &suspended);
+		if (e == GFARM_ERR_NO_ERROR &&
+		    protocol_is_channel_switch(request)) {
+			/*
+			 * the peer has been handed over to the gfmd channel
+			 * or the back channel, and may be freed by its thread
+			 * at any time.  do not touch the peer anymore.
+			 */
+			return (1); /* finish */
+		}
 		ps->last_sync_request = request;
 		if (suspended)
 			return (1); /* finish */
 		giant_lock();
 		peer_fdpair_clear(peer, diag);
 		if (peer_had_protocol_error(peer)) {
-			/*
-			 * gfmd_channel and back_channel will be
-			 * freed by their own thread
-			 */
-			if (e != GFARM_ERR_NO_ERROR ||
-			    (request != GFM_PROTO_SWITCH_GFMD_CHANNEL &&
-#ifdef COMPAT_GFARM_2_3
-			     request != GFM_PROTO_SWITCH_BACK_CHANNEL &&
-#endif
-			     request != GFM_PROTO_SWITCH_ASYNC_BACK_CHANNEL))
-				protocol_finish(peer, diag);
+			protocol_finish(peer, diag);
 			giant_unlock();
 			return (1); /* finish */
 		}
@@ -776,19 +799,10 @@ protocol_service(struct peer *peer)
 		if (suspended)
 			return (1); /* finish */
 		if (peer_had_protocol_error(peer)) {
+			/* a channel switch is a protocol error here */
 			giant_lock();
 			peer_fdpair_clear(peer, diag);
-			/*
-			 * gfmd_channel and back_channel will be
-			 * freed by their own thread
-			 */
-			if (e != GFARM_ERR_NO_ERROR ||
-			    (request != GFM_PROTO_SWITCH_GFMD_CHANNEL &&
-#ifdef COMPAT_GFARM_2_3
-			     request != GFM_PROTO_SWITCH_BACK_CHANNEL &&
-#endif
-			     request != GFM_PROTO_SWITCH_ASYNC_BACK_CHANNEL))
-				protocol_finish(peer, diag);
+			protocol_finish(peer, diag);
 			giant_unlock();
 			return (1); /* finish */
 		}
@@ -812,12 +826,11 @@ protocol_service(struct peer *peer)
 			cs->skip = cs->current_part != cs->cause;
 		}
 	}
-	/* request is always set here, because of !peer_had_protocol_error() */
-	if (request == GFM_PROTO_SWITCH_GFMD_CHANNEL ||
-#ifdef COMPAT_GFARM_2_3
-	    request == GFM_PROTO_SWITCH_BACK_CHANNEL ||
-#endif
-	    request == GFM_PROTO_SWITCH_ASYNC_BACK_CHANNEL) {
+	/*
+	 * request is always set here, because of !peer_had_protocol_error().
+	 * a successful channel switch has already returned above.
+	 */
+	if (protocol_is_channel_switch(request)) {
 		if (e != GFARM_ERR_NO_ERROR) {
 			gflog_debug(GFARM_MSG_1001482,
 				"failed to process GFM_PROTO_SWITCH_BACK_"
@@ -856,7 +869,7 @@ protocol_main(void *arg)
 	/*
 	 * NOTE:
 	 * We should use do...while loop for the above gfp_xdr_recv_is_ready()
-	 * case, instead of thrpool_add_job() like peer_authorized().
+	 * case, instead of thrpool_add_job() like peer_watch_authorized().
 	 * Because this thread is executed under thrpool_worker(),
 	 * and such thread should not use thrpool_add_job().
 	 * Think about the following scenario:
@@ -1040,6 +1053,8 @@ peer_authorize(struct peer *peer)
 		    id_role, username, hostname, &addr, auth_method,
 		    sync_protocol_watcher);
 		giant_unlock();
+		/* this may sleep, thus, must be called without giant_lock */
+		peer_watch_authorized(peer);
 	} else {
 		gflog_notice(GFARM_MSG_1002474,
 		    "host %s: authorize: %s", hostname, gfarm_error_string(e));
@@ -1438,7 +1453,14 @@ transform_to_master(void)
 
 	giant_unlock();
 
+	/*
+	 * signal with transform_mutex held.  otherwise, the signal may be
+	 * lost if it is sent after wait_transform_to_master() checks
+	 * mdhost_self_is_master() and before it waits.
+	 */
+	gfarm_mutex_lock(&transform_mutex, diag, TRANSFORM_MUTEX_DIAG);
 	gfarm_cond_signal(&transform_cond, diag, TRANSFORM_COND_DIAG);
+	gfarm_mutex_unlock(&transform_mutex, diag, TRANSFORM_MUTEX_DIAG);
 
 	start_db_journal_threads();
 	start_gfmdc_threads();
@@ -1841,9 +1863,17 @@ gfmd_modules_init_default(int table_size)
 	}
 	/* initial entry */
 	mdhost_initial_entry();
-	user_initial_entry();
-	group_initial_entry();
-	inode_initial_entry();
+	/*
+	 * these may write DB, thus, must not be called on a slave gfmd,
+	 * otherwise the journal of the slave becomes inconsistent with
+	 * the master's one.  the master sends these entries to slaves.
+	 */
+	if (!gfarm_get_metadb_replication_enabled() ||
+	    mdhost_self_is_master()) {
+		user_initial_entry();
+		group_initial_entry();
+		inode_initial_entry();
+	}
 	dir_entry_initial_entry();
 
 	/* must be after hosts, filesystem and mdhost_initial_entry */
@@ -1969,6 +1999,8 @@ gflog_info(GFARM_MSG_UNFIXED, "main <1>");
 	 * We do this before calling gfarm_daemon()
 	 * to print the error message to stderr.
 	 */
+	if (gfarm_get_metadb_replication_enabled())
+		db_journal_lock_dir();
 	write_pid();
 gflog_info(GFARM_MSG_UNFIXED, "main <2>");
 
