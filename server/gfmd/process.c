@@ -263,7 +263,7 @@ process_add_ref(struct process *process)
 }
 
 static gfarm_error_t process_close_or_abort_file(struct process *,
-	struct peer *, int, int, int, int, char **, const char *);
+	struct peer *, int, int, int, int, int, char **, const char *);
 
 /*
  * NOTE:
@@ -287,8 +287,8 @@ process_del_ref(struct process *process, struct peer *peer, int from_client)
 gflog_info(GFARM_MSG_UNFIXED, "fd=%d, peer=%p", fd, peer);
 			mode = inode_get_mode(fo->inode);
 			process_close_or_abort_file(
-			    process, peer, from_client, fd, 1, in_slave, NULL,
-			    diag);
+			    process, peer, from_client, fd, 1, in_slave, 0,
+			    NULL, diag);
 gflog_info(GFARM_MSG_UNFIXED, "pid=%lld fd=%d fo=%p", (long long)process->pid, fd, process->filetab[fd]);
 		}
 	}
@@ -1051,7 +1051,7 @@ process_new_generation_by_cookie_finish(struct inode *inode,
 			} else {
 				process_close_or_abort_file(
 				    closure.target_process, peer, 0,
-				    closure.target_fd, 1, 0, NULL, diag);
+				    closure.target_fd, 1, 0, 0, NULL, diag);
 			}
 		} else if (closure.n_found > 1) {
 			gflog_warning(GFARM_MSG_UNFIXED,
@@ -1427,7 +1427,7 @@ process_getgen(struct process *process, struct peer *peer, int fd,
 static gfarm_error_t
 process_close_or_abort_file(struct process *process,
 	struct peer *peer, int from_client, int fd, int aborted, int in_slave,
-	char **trace_logp, const char *diag)
+	int force_close, char **trace_logp, const char *diag)
 {
 	struct file_opening *fo;
 	gfarm_mode_t mode;
@@ -1471,7 +1471,7 @@ aborted
 
 		/* i.e. REOPENed file, and I am a gfsd. */
 		if ((accmode_to_op(fo->flag) & GFS_W_OK) != 0) {
-			if (aborted) {
+			if (aborted && !force_close) {
 				gflog_warning(GFARM_MSG_1004354,
 				    "gfsd on %s@%s exited"
 				    " without closing write-opened file"
@@ -1490,7 +1490,7 @@ aborted
 			    == fd) {
 				peer_unset_pending_new_generation_by_fd(peer,
 				    GFARM_ERR_NO_SUCH_PROCESS);
-			} else if (aborted) {
+			} else if (aborted && !force_close) {
 				/* XXX FIXME needs re-check */
 				keep_opened = 1;
 			} else {
@@ -1591,7 +1591,7 @@ process_close_file(struct process *process, struct peer *peer, int fd,
 	char **trace_logp, const char *diag)
 {
 	return (process_close_or_abort_file(process,
-	    peer, peer_get_host(peer) == NULL, fd, 0, 0, trace_logp, diag));
+	    peer, peer_get_host(peer) == NULL, fd, 0, 0, 0, trace_logp, diag));
 }
 
 gfarm_error_t
@@ -1863,7 +1863,7 @@ process_spool_closed_in_slave(gfarm_pid_t pid, int fd)
 		return (GFARM_ERR_NO_SUCH_PROCESS);
 	}
 	return (process_close_or_abort_file(
-	    process, NULL, 0, fd, 0, 1, NULL, diag));
+	    process, NULL, 0, fd, 0, 1, 0, NULL, diag));
 }
 
 gfarm_error_t
@@ -2817,7 +2817,7 @@ process_fd_remove_one(struct process *target_process, int fd,
 	if (fo->u.f.spool_opener != NULL) /* gfsd still connected */
 		return (0);
 	
-	if (process_close_or_abort_file(target_process, NULL, 0, fd, 1, 0, 
+	if (process_close_or_abort_file(target_process, NULL, 0, fd, 1, 0, 1,
 	    NULL, "GFM_PROTO_PROCESS_FD_REMOVE") != GFARM_ERR_NO_ERROR)
 		return (0);
 
