@@ -3067,7 +3067,11 @@ reopen_resume(struct peer *peer, void *closure, int *suspendedp)
 
 	giant_lock();
 
-	if ((process = peer_get_process(peer)) == NULL) {
+	if ((spool_host = peer_get_host(peer)) == NULL) {
+		gflog_debug(GFARM_MSG_1002261,
+		    "%s: peer_get_host() failed", diag);
+		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
+	} else if ((process = peer_get_process(peer)) == NULL) {
 		gflog_debug(GFARM_MSG_1002262,
 		    "%s: peer_get_process() failed", diag);
 		e = GFARM_ERR_OPERATION_NOT_PERMITTED;
@@ -3080,8 +3084,9 @@ reopen_resume(struct peer *peer, void *closure, int *suspendedp)
 		    (long long)inum, (long long)gen, flags);
 		e = GFARM_ERR_READ_ONLY_FILE_SYSTEM;
 	} else {
-		spool_host = peer_get_host(peer);
-		if (db_begin(diag) == GFARM_ERR_NO_ERROR)
+		/* db_begin() must not be called in read_only mode */
+		if (!gfarm_read_only_mode() &&
+		    db_begin(diag) == GFARM_ERR_NO_ERROR)
 			transaction = 1;
 		e = process_reopen_file(process, peer, spool_host, arg->fd,
 		    &inum, &gen, &mode, &flags, &to_create, diag);
@@ -3990,10 +3995,20 @@ generation_updated_common(struct peer *peer, int from_client,
 	struct host *spool_host;
 	struct process *process;
 	struct inode *inode;
+	int transaction = 0;
 
 	giant_lock();
 
 	/* callees of process_new_generation_done() handle read_only */
+
+	/*
+	 * process_new_generation_done() updates the database several times.
+	 * do them in one transaction, otherwise each of them is synchronized
+	 * to the journal file and the synchronous slaves
+	 * while holding giant_lock.
+	 */
+	if (!gfarm_read_only_mode() && db_begin(diag) == GFARM_ERR_NO_ERROR)
+		transaction = 1;
 
 	if (from_client) { /* from gfsd only */
 		gflog_debug(GFARM_MSG_1002266, "%s: from client", diag);
@@ -4033,6 +4048,10 @@ generation_updated_common(struct peer *peer, int from_client,
 		    host_name(spool_host), fd,
 		    gfarm_error_string(result));
 	}
+
+	if (transaction)
+		db_end(diag);
+
 	return (e);
 }
 
@@ -4116,13 +4135,11 @@ generation_updated_by_cookie_common(struct peer *peer, int from_client,
 		    peer_get_pending_new_generation_by_cookie(peer, cookie);
 
 		if (inode == NULL) {
+			/* `inode' is NULL, it must not be referred here */
 			gflog_info(GFARM_MSG_1005198, "%s (%s@%s) "
-			    "cookie %llu for inode %llu:%llu during read_only:"
-			    " obsolete cookie",
+			    "cookie %llu during read_only: obsolete cookie",
 			    diag,
 			    peer_get_username(peer), peer_get_hostname(peer),
-			    (long long)inode_get_number(inode),
-			    (long long)inode_get_gen(inode),
 			    (long long)cookie);
 			e = GFARM_ERR_BAD_COOKIE;
 		} else {
